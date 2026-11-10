@@ -2,7 +2,7 @@
 
 A campus marketplace prototype for Cebu Institute of Technology (CIT) students, faculty, and staff. The project is intended to help the campus community discover, sell, and rent academic and personal items. Payments and item handoffs are arranged offline by cash and in-person meetup; the app does not process payments or delivery.
 
-> **Project status:** This repository currently contains a React frontend prototype with sample data. Supabase has not yet been connected. Authentication, listing persistence, messaging, moderation, and other workflows described in the design are not implemented as live services yet. Do not use the current UI as an access-control or security boundary.
+> **Project status:** This repository currently contains a React frontend prototype with sample data. The `@supabase/supabase-js` package and shared client are set up, and the local project credentials are configured in the ignored `.env.local` file. Marketplace authentication, listing persistence, messaging, moderation, and other workflows described in the design are not yet implemented as live services. Do not use the current UI as an access-control or security boundary.
 
 ## Contents
 
@@ -35,7 +35,8 @@ Most actions are presentation-only. For example, login does not authenticate a u
 - React Router 6
 - Create React App (`react-scripts`)
 - Plain CSS
-- Supabase is the planned backend, but is not currently installed or configured in this repository.
+- Supabase JavaScript client (`@supabase/supabase-js`) is installed and initialized in `src/lib/supabaseClient.js`.
+- Local Supabase connection values belong in the ignored `.env.local` file; each developer must configure their own values.
 
 The design document mentions React + Vite. The repository currently uses Create React App. Until the team migrates to Vite, use `REACT_APP_` environment variable names, not Vite's `VITE_` names.
 
@@ -229,7 +230,7 @@ There is no admin route yet.
 
 ### Not yet implemented as working backend features
 
-- Supabase project/client setup and migrations.
+- Version-controlled Supabase schema migrations and marketplace tables.
 - Real email verification, authentication, profiles, roles, and account status.
 - Database-backed listings, image uploads, edit/delete/unavailable actions, and approval workflow.
 - Admin interface, account verification, report handling, and moderation audit log.
