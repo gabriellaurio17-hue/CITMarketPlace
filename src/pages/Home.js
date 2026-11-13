@@ -3,15 +3,16 @@ import { Link, useNavigate } from 'react-router-dom';
 import BackdropImage from '../components/BackdropImage';
 import ListingCard from '../components/ListingCard';
 import Watermark from '../components/Watermark';
-import listings from '../data/listings';
+import useMarketplaceListings from '../hooks/useMarketplaceListings';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('all');
   const [searchType, setSearchType] = useState('both');
   const navigate = useNavigate();
+  const { listings, loading, error } = useMarketplaceListings();
   const freshListings = useMemo(
-    () => listings.filter((listing) => activeTab === 'all' || listing.type === (activeTab === 'sale' ? 'sale' : 'rent')),
-    [activeTab]
+    () => listings.filter((listing) => activeTab === 'all' || listing.type === 'both' || listing.type === (activeTab === 'sale' ? 'sale' : 'rent')),
+    [activeTab, listings]
   );
 
   const openBrowse = () => navigate(`/browse?type=${searchType}`);
@@ -73,7 +74,8 @@ export default function Home() {
         <div className="tabs" role="tablist" aria-label="Listing type">
           {[['all', 'All'], ['sale', 'For sale'], ['rent', 'For rent']].map(([value, label]) => <button role="tab" aria-selected={activeTab === value} className={activeTab === value ? 'tab active-tab' : 'tab'} key={value} onClick={() => setActiveTab(value)}>{label}</button>)}
         </div>
-        <div className="listing-grid">{freshListings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div>
+        {error && <p className="admin-alert" role="alert">Couldn’t load listings: {error}</p>}
+        {loading ? <p className="admin-empty">Finding the latest campus listings…</p> : freshListings.length ? <div className="listing-grid">{freshListings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div> : <p className="admin-empty">No approved listings yet. Check back soon.</p>}
       </section>
       <section
         className="how-section content-width photo-panel"

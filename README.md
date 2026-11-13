@@ -2,7 +2,7 @@
 
 A campus marketplace prototype for Cebu Institute of Technology (CIT) students, faculty, and staff. The project is intended to help the campus community discover, sell, and rent academic and personal items. Payments and item handoffs are arranged offline by cash and in-person meetup; the app does not process payments or delivery.
 
-> **Project status:** This repository currently contains a React frontend prototype with sample data. The `@supabase/supabase-js` package and shared client are set up, and the local project credentials are configured in the ignored `.env.local` file. Marketplace authentication, listing persistence, messaging, moderation, and other workflows described in the design are not yet implemented as live services. Do not use the current UI as an access-control or security boundary.
+> **Project status:** Supabase Auth, marketplace data, and admin workflows are implemented in the frontend and initial SQL migration. The migration still needs to be run in your Supabase project before these workflows can work. Never rely on client-side UI checks alone; database RLS and functions enforce access rules.
 
 ## Contents
 
@@ -10,6 +10,7 @@ A campus marketplace prototype for Cebu Institute of Technology (CIT) students, 
 - [Technology](#technology)
 - [Run locally](#run-locally)
 - [Connect a Supabase project](#connect-a-supabase-project)
+- [Create test accounts](#create-test-accounts)
 - [Planned Supabase data model](#planned-supabase-data-model)
 - [Project structure](#project-structure)
 - [Routes](#routes)
@@ -18,16 +19,17 @@ A campus marketplace prototype for Cebu Institute of Technology (CIT) students, 
 
 ## Current features
 
-The current app includes:
+The app currently includes:
 
 - A landing page and sample marketplace listings.
 - Browse search, category/type/condition/price filters, and price sorting.
 - Listing detail pages, including a rental duration and estimated price display.
-- Login and signup screens with basic client-side form validation and a `@cit.edu` email format check.
-- A listing form, mobile listing concept screen, dashboard, messages, notifications, and rental tracking screens populated with demo data.
+- Supabase email/password signup and login, profile loading, logout, and route protection.
+- Database-backed public browse/detail pages and listing creation/editing with photo upload and pending approval.
+- A user dashboard, listing availability/deletion controls, conversations with realtime messages, rental recording/return, notifications, reports, seller reviews, and an admin moderation screen.
 - Responsive styling and shared navigation components.
 
-Most actions are presentation-only. For example, login does not authenticate a user, the listing form does not save a listing, and messages and rental changes do not persist after leaving the page.
+The database workflows require the SQL migration below. Until it has been run, the app cannot find the marketplace tables.
 
 ## Technology
 
@@ -53,6 +55,8 @@ The design document mentions React + Vite. The repository currently uses Create 
 git clone <repository-url>
 cd my-app
 npm install
+cp .env.example .env.local
+# Fill in your Supabase URL/key in .env.local before starting
 npm start
 ```
 
@@ -95,7 +99,19 @@ Commit the resulting `package.json` and lockfile changes with the integration wo
 
 ### 4. Add local environment variables
 
-Create `.env.local` in the repository root (beside `package.json`):
+Copy `.env.example` to `.env.local` in the repository root (beside `package.json`):
+
+```bash
+cp .env.example .env.local
+```
+
+On PowerShell, use:
+
+```powershell
+Copy-Item .env.example .env.local
+```
+
+Fill in the local file with your Supabase **Project URL** and **Publishable key**:
 
 ```dotenv
 REACT_APP_SUPABASE_URL=https://your-project-ref.supabase.co
@@ -148,29 +164,56 @@ For every exposed table:
 - Keep moderation status changes limited to admins and write the moderation log as part of the same trusted operation.
 - Test policies with separate user accounts and an admin account before deploying.
 
-For listing photos, create a Storage bucket and decide whether listing images are public or private. Add Storage policies for upload, viewing, and deletion that check the authenticated owner and listing visibility. Do not rely on client-side file checks alone.
+The migration creates a private `listing-images` Storage bucket with JPG/PNG and 10 MB limits plus owner and listing-visibility policies. The app creates signed image URLs for approved listings. Keep this bucket private so pending listing photos are not public.
 
-### 8. Integrate the app in small steps
+### 7. Create the marketplace schema
 
-Recommended order:
+The repository includes the initial schema and Row Level Security policies at `supabase/migrations/202611100001_initial_marketplace.sql`. In Supabase, open **SQL Editor → New query**, paste the complete file contents, and run the query. This creates profiles, listings, messages, transactions, reports, notifications, moderation functions, categories, and the `listing-images` Storage bucket. Your Supabase project currently has only the connection test table, so this migration is required before marketplace pages can load.
 
-1. Add an Auth provider/context that loads the current Supabase session, subscribes to auth state changes, and exposes sign-up, sign-in, and sign-out actions.
-2. Replace the simulated login/signup success flows with Supabase Auth calls and confirmation handling.
-3. Add a profile record for each Auth user and route protection for signed-in and admin-only pages.
-4. Create listing service functions for insert, update, availability, deletion, and search. Replace sample listing reads and make form submission upload images and save a pending listing.
-5. Add the admin moderation flow and action logging.
-6. Add conversations/messages with Supabase Realtime after messages are persisted successfully.
-7. Add rental transactions, notifications, and reviews with database rules enforcing completion requirements.
+The account role is `user` or `admin`; Student and Faculty/Staff are profile classifications. If you already ran the earlier migrations, run `supabase/migrations/202611100003_user_admin_roles.sql` and then `supabase/migrations/202611100004_restore_member_classification.sql` in the SQL Editor. Public signup creates only `user` accounts. Choosing Admin in signup is blocked; an existing project owner must grant admin access.
 
-Keep Supabase calls and business rules out of JSX where possible. Place them in focused service modules so screens handle display and user input, while policies/database functions remain the security boundary.
+Apply migrations `001`–`007` in numeric order on a fresh database. On an existing database, apply each migration after the latest one already run. Migration `006` adds the admin account-decline action; migration `007` provides a safe listing-owner display name for public listing cards and details.
+
+### 8. Create the first administrator
+
+1. Start the app and sign up with an accessible `@cit.edu` email for the admin account.
+2. Confirm that email from the inbox.
+3. In the Supabase SQL Editor, promote that confirmed account (replace the example email):
+
+   ```sql
+   update public.profiles
+   set role = 'admin', is_verified = true
+   where email = lower('admin@cit.edu');
+   ```
+
+4. Log out and back in. Admins can use the four admin links in the header; the public homepage remains available to all account types.
+
+Promote the first admin only through the Supabase SQL Editor. Public signup creates only regular `user` accounts; admins are assigned by an existing project owner through SQL. The app does not provide a role-switcher or a way for users to grant themselves admin access. Buyer, seller, and renter are activities available to users, not account roles.
+
+### 9. Configure email redirects
+
+In Supabase Authentication URL settings, set the local Site URL to `http://localhost:3000` and add that local URL to allowed redirects. Add the production domain before deployment. Keep email confirmation enabled.
+
+The app enforces email confirmation and admin profile verification before listing or messaging. Signup’s `@cit.edu` check alone does not verify mailbox ownership.
+
+## Create test accounts
+
+Use **four separate Supabase Auth accounts** to preview the main views:
+
+1. Admin account: the account you promoted in the SQL Editor.
+2. Student account A: verify it in Admin, then use it to create listings.
+3. Student account B: verify it in Admin, then use it as a buyer/renter.
+4. Another User account (a student, faculty, or staff member) and verify it in Admin.
+
+Use inboxes you can access for email confirmation. To switch between accounts, log out and log back in with the other account. There is no in-app identity/role switcher. All regular Users share the member interface; the admin role opens the separate moderation screen. Buying, selling, renting, and owning are activities available to regular members, not separate access roles.
 
 ## Planned Supabase data model
 
-The following entities come from the CIT Marketplace software design. They are a planning guide, **not tables that already exist** in this repository or Supabase project.
+The migration implements these entities from the CIT Marketplace software design. The tables exist in Supabase only after the migration has been run.
 
 | Table | Purpose / key fields |
 | --- | --- |
-| `profiles` | Auth user ID, full name, email, role, classification, account status, verification state, creation date |
+| `profiles` | Auth user ID, full name, email, role (`user` or `admin`), optional campus classification, account status, verification state, creation date |
 | `categories` | Category ID and name |
 | `listings` | Owner, category, title, description, condition, type, price, rental terms/deposit, location, approval status, availability, posted date |
 | `listing_images` | Listing ID, storage path, display order |
@@ -199,7 +242,7 @@ public/
   images/       Static image assets used by the interface
 ```
 
-As the backend is added, consider introducing `src/lib/` for the shared Supabase client and `src/services/` (or feature modules) for auth, listings, messaging, moderation, and transactions. Keep schema migrations in a version-controlled folder such as `supabase/migrations/`.
+`src/auth/` contains session/profile state. `src/lib/` contains the shared Supabase client. The migration is version-controlled in `supabase/migrations/`.
 
 ## Routes
 
@@ -214,30 +257,29 @@ As the backend is added, consider introducing `src/lib/` for the shared Supabase
 | `/rentals` | Rental tracking screen |
 | `/messages` | Messaging screen |
 | `/notifications` | Notifications screen |
+| `/admin/pending-listings` | Pending listing review (admin only) |
+| `/admin/verify-accounts` | Account verification queue (admin only) |
+| `/admin/reports` | Report review (admin only) |
+| `/admin/moderation-log` | Moderation history (admin only) |
 | `/login` | Login screen |
 | `/signup` | Signup screen |
 
-There is no admin route yet.
-
 ## Development status and next steps
 
-### Present in the frontend prototype
+### Implemented in the app
 
-- Main buyer/seller screens and route navigation.
-- Sample listing data and client-side search/filtering.
-- Basic form validation and visual states.
-- Responsive styling and static campus imagery.
+- Supabase Auth signup/login, profile loading, sign out, and role-gated routes.
+- Listings, photo upload, browse filters, listing management, reports, and admin approval.
+- Listing-linked messaging, realtime message/notification updates, rental records, return completion, and seller reviews.
+- Student/Faculty/Staff user classifications, User/Admin roles, and admin-only moderation views.
 
-### Not yet implemented as working backend features
+### Setup and remaining work
 
-- Version-controlled Supabase schema migrations and marketplace tables.
-- Real email verification, authentication, profiles, roles, and account status.
-- Database-backed listings, image uploads, edit/delete/unavailable actions, and approval workflow.
-- Admin interface, account verification, report handling, and moderation audit log.
-- Persisted listing-linked conversations, messages, and reliable realtime delivery.
-- Database-backed sale/rental transactions, return/deposit tracking, and overdue calculation.
-- Notifications and post-transaction seller reviews.
-- Automated tests for business rules, security policies, and user flows.
+- Run the initial migration in your Supabase project's SQL Editor.
+- Create and confirm test accounts, promote the first admin, and verify regular accounts from the admin screen.
+- Check and refine the migration and RLS policies against the team’s grading/deployment requirements before production use.
+- Complete any additional sale completion or profile-management details required by the team.
+- Automated tests for the database policies and full account workflows.
 
 ## Team notes
 
@@ -245,7 +287,7 @@ There is no admin route yet.
 - Never commit `.env.local`, Supabase secret keys, user credentials, or real personal data.
 - Use sample/test accounts and a non-production Supabase project while developing.
 - Make database schema and policy changes reproducible through reviewed migrations.
-- The current demo data uses a sample user named Ana Reyes; replace it with authenticated profile data when integrating Supabase.
+- Use separate Auth accounts to preview the real views: regular User accounts and an administrator. All Users share the member UI; buying, selling, and renting are actions, not separate roles.
 
 ## References
 

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
+import { useAuth } from '../auth/AuthContext';
+import { supabase } from '../lib/supabaseClient';
 import { isCitEmail } from '../utils/validation';
 
 export default function Login() {
@@ -8,15 +10,33 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const { signIn } = useAuth();
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     const nextErrors = {};
     if (!isCitEmail(email)) nextErrors.email = 'Use your @cit.edu email';
     if (!password.trim()) nextErrors.password = 'Enter your password';
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length === 0) navigate('/dashboard');
+    if (Object.keys(nextErrors).length > 0) return;
+    setSubmitting(true);
+    const { data, error } = await signIn(email.trim(), password);
+    if (error) {
+      setSubmitting(false);
+      setErrors({ form: error.message === 'Invalid login credentials' ? 'Email or password is incorrect.' : error.message });
+      return;
+    }
+    const requestedPath = location.state?.from?.pathname;
+    let destination = requestedPath || '/dashboard';
+    if (!requestedPath && data?.user?.id) {
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
+      if (profile?.role === 'admin') destination = '/';
+    }
+    setSubmitting(false);
+    navigate(destination, { replace: true });
   };
 
   const togglePassword = () => setShowPassword((visible) => !visible);
@@ -30,6 +50,7 @@ export default function Login() {
         <p>Log in with your @cit.edu email.</p>
       </div>
       <form className="auth-form" onSubmit={submit} noValidate>
+        {errors.form && <p className="auth-error" role="alert">{errors.form}</p>}
         <div className="auth-field">
           <label htmlFor="login-email">Email</label>
           <input
@@ -69,7 +90,7 @@ export default function Login() {
           </div>
           {errors.password && <p className="auth-error" id="login-password-error" role="alert">{errors.password}</p>}
         </div>
-        <button className="button auth-submit" type="submit">Log in</button>
+        <button className="button auth-submit" type="submit" disabled={submitting}>{submitting ? 'Logging in…' : 'Log in'}</button>
       </form>
       <p className="auth-switch">New to CIT Marketplace? <Link to="/signup">Sign up</Link></p>
     </AuthLayout>

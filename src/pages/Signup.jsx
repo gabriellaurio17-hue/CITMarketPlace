@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
+import { useAuth } from '../auth/AuthContext';
 import { isCitEmail } from '../utils/validation';
 
 const initialForm = {
@@ -18,6 +19,8 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const { signUp } = useAuth();
 
   const updateField = (field) => (event) => {
     const value = field === 'offlineAgreement' ? event.target.checked : event.target.value;
@@ -26,18 +29,27 @@ export default function Signup() {
   const togglePassword = () => setShowPassword((visible) => !visible);
   const toggleConfirmation = () => setShowConfirmation((visible) => !visible);
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     const nextErrors = {};
     if (!form.name.trim()) nextErrors.name = 'Enter your full name';
     if (!isCitEmail(form.email)) nextErrors.email = 'Use your @cit.edu email';
-    if (!form.classification) nextErrors.classification = 'Choose your classification';
+    if (!form.classification) nextErrors.classification = 'Choose your account type';
+    if (form.classification === 'Admin') nextErrors.form = 'Admin accounts cannot be created through public signup. Ask the project owner to grant Admin access to an account.';
     if (form.password.length < 8) nextErrors.password = 'Use at least 8 characters';
     if (!form.confirmPassword) nextErrors.confirmPassword = 'Confirm your password';
     else if (form.confirmPassword !== form.password) nextErrors.confirmPassword = 'Passwords must match';
     if (!form.offlineAgreement) nextErrors.offlineAgreement = 'Please confirm the offline exchange terms';
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length === 0) setSubmittedEmail(form.email.trim());
+    if (Object.keys(nextErrors).length > 0) return;
+    setSubmitting(true);
+    const { error } = await signUp(form);
+    setSubmitting(false);
+    if (error) {
+      setErrors({ form: error.message.includes('already registered') ? 'An account with this email already exists.' : error.message });
+      return;
+    }
+    setSubmittedEmail(form.email.trim());
   };
 
   if (submittedEmail) {
@@ -46,7 +58,7 @@ export default function Signup() {
         <section className="auth-success" aria-live="polite">
           <span className="auth-success-icon" aria-hidden="true">✓</span>
           <h2>Check your email</h2>
-          <p>We sent a verification link to {submittedEmail}. Your account is active once your @cit.edu email is verified.</p>
+          <p>We sent a verification link to {submittedEmail}. Confirm your @cit.edu address, then log in. An administrator must also verify your campus account before you can list items or message other members.</p>
           <Link className="button auth-secondary-button" to="/login">Back to log in</Link>
         </section>
       </AuthLayout>
@@ -60,6 +72,7 @@ export default function Signup() {
         <p>Verified CIT students, faculty and staff only.</p>
       </div>
       <form className="auth-form auth-signup-form" onSubmit={submit} noValidate>
+        {errors.form && <p className="auth-error" role="alert">{errors.form}</p>}
         <div className="auth-field">
           <label htmlFor="signup-name">Full name</label>
           <input id="signup-name" autoComplete="name" value={form.name} onChange={updateField('name')} aria-required="true" aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? 'signup-name-error' : undefined} />
@@ -71,14 +84,15 @@ export default function Signup() {
           {errors.email && <p className="auth-error" id="signup-email-error" role="alert">{errors.email}</p>}
         </div>
         <div className="auth-field">
-          <label htmlFor="signup-classification">Classification</label>
-          <select id="signup-classification" value={form.classification} onChange={updateField('classification')} aria-required="true" aria-invalid={Boolean(errors.classification)} aria-describedby={errors.classification ? 'signup-classification-error' : undefined}>
-            <option value="">Choose your classification</option>
+          <label htmlFor="signup-classification">Account type</label>
+          <select id="signup-classification" value={form.classification} onChange={(event) => { setForm((current) => ({ ...current, classification: event.target.value })); setErrors((current) => ({ ...current, form: undefined, classification: undefined })); }} aria-required="true" aria-invalid={Boolean(errors.classification)} aria-describedby={errors.classification ? 'signup-classification-error' : undefined}>
+            <option value="">Choose your account type</option>
             <option value="Student">Student</option>
             <option value="Faculty/Staff">Faculty/Staff</option>
-            <option value="School organization">School organization</option>
+            <option value="Admin">Admin</option>
           </select>
           {errors.classification && <p className="auth-error" id="signup-classification-error" role="alert">{errors.classification}</p>}
+          <small>Student and Faculty/Staff signups create User accounts. Admin access is assigned by the project owner.</small>
         </div>
         <div className="auth-field">
           <label htmlFor="signup-password">Password</label>
@@ -103,7 +117,7 @@ export default function Signup() {
           </label>
           {errors.offlineAgreement && <p className="auth-error" id="signup-offline-agreement-error" role="alert">{errors.offlineAgreement}</p>}
         </div>
-        <button className="button auth-submit" type="submit">Create account</button>
+        <button className="button auth-submit" type="submit" disabled={submitting}>{submitting ? 'Creating account…' : 'Create account'}</button>
       </form>
       <p className="auth-switch">Already have an account? <Link to="/login">Log in</Link></p>
     </AuthLayout>
