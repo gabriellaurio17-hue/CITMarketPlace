@@ -13,7 +13,7 @@ const ItemDetails = lazy(() => import('./pages/ItemDetails'));
 const Sell = lazy(() => import('./pages/Sell'));
 const Rentals = lazy(() => import('./pages/Rentals'));
 const Messages = lazy(() => import('./pages/Messages'));
-const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Dashboard = lazy(() => import('./pages/DashboardEntry'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const SellMobile = lazy(() => import('./pages/SellMobile'));
 const Login = lazy(() => import('./pages/Login'));

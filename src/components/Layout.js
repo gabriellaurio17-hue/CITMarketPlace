@@ -6,7 +6,7 @@ import { useAuth } from '../auth/AuthContext';
 export default function Layout() {
   const location = useLocation();
   const { profile, loading } = useAuth();
-  if (!loading && profile?.role === 'admin' && location.pathname !== '/') return <Navigate to="/" replace />;
+  if (!loading && (profile?.classification === 'Admin' || profile?.role === 'admin') && location.pathname !== '/') return <Navigate to="/" replace />;
   const dark = location.pathname.startsWith('/items/');
   return (
     <div className={dark ? 'app-shell dark-shell' : 'app-shell'}>

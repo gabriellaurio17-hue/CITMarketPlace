@@ -386,6 +386,12 @@ td small { display: block; margin-top: 4px; color: #a09589; font-size: 9px; }
 .stat-card > strong { margin: 6px 0 3px; color: var(--deep-maroon); font-size: 31px; line-height: 1; letter-spacing: -1.5px; }
 .stat-card > strong i { color: var(--deep-gold); font-size: 19px; font-style: normal; }
 .stat-card small { color: #968a7e; font-size: 9px; }
+.faculty-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.faculty-tools > a { color: inherit; text-decoration: none; transition: border-color .2s, transform .2s; }
+.faculty-tools > a:hover { border-color: var(--deep-gold); transform: translateY(-2px); }
+.faculty-dashboard-details > .page-heading,
+.faculty-dashboard-details > .profile-card,
+.faculty-dashboard-details > .stats-grid { display: none; }
 .dashboard-section { margin-top: 43px; }
 .small-heading { margin-bottom: 15px; }
 .small-heading h2 { font-size: 29px; letter-spacing: -1.2px; }

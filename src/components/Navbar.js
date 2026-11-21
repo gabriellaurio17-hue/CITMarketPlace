@@ -7,14 +7,15 @@ function Navbar({ dark = false }) {
   const navigate = useNavigate();
   const { user, profile, signOut, loading } = useAuth();
   const navClass = ({ isActive }) => `nav-link${isActive ? ' active' : ''}`;
+  const isAdmin = profile?.classification === 'Admin' || profile?.role === 'admin';
   const initials = (profile?.full_name || user?.email || 'CIT').split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 
   const logOut = async () => {
     const { error } = await signOut();
-    if (!error) navigate('/', { replace: true });
+    if (!error) navigate('/login', { replace: true });
   };
 
-  const accountActions = user && loading ? null : user && profile?.role === 'admin' ? (
+  const accountActions = user && loading ? null : user && isAdmin ? (
     <div className="header-actions"><button className="logout-link" type="button" onClick={logOut}>Log out</button></div>
   ) : user ? (
     <div className="header-actions">
@@ -31,12 +32,20 @@ function Navbar({ dark = false }) {
     <header className={`site-header${dark ? ' site-header-dark' : ''}`}>
       <div className="header-inner">
         <Logo light={dark} />
-        {user && loading ? null : profile?.role === 'admin' ? (
+        {user && loading ? null : isAdmin ? (
           <nav className="nav-links" aria-label="Administrator navigation">
             <NavLink to="/admin/pending-listings" className={navClass}>Pending Listings</NavLink>
             <NavLink to="/admin/verify-accounts" className={navClass}>Verify Accounts</NavLink>
             <NavLink to="/admin/reports" className={navClass}>Reports</NavLink>
             <NavLink to="/admin/moderation-log" className={navClass}>Moderation Log</NavLink>
+          </nav>
+        ) : profile?.classification === 'Faculty/Staff' ? (
+          <nav className="nav-links" aria-label="Faculty and staff navigation">
+            <NavLink to="/dashboard" className={navClass}>Faculty Dashboard</NavLink>
+            <NavLink to="/browse" className={navClass}>Browse</NavLink>
+            <NavLink to="/sell" className={navClass}>Sell</NavLink>
+            <NavLink to="/rentals" className={navClass}>Rentals</NavLink>
+            <NavLink to="/messages" className={navClass}>Messages</NavLink>
           </nav>
         ) : dark ? (
           <nav className="nav-links detail-nav" aria-label="Main navigation">

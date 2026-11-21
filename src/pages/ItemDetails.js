@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import useMarketplaceListings from '../hooks/useMarketplaceListings';
-import { supabase } from '../lib/supabaseClient';
+import { updateStore } from '../data/localStore';
 import formatCurrency from '../utils/formatCurrency';
 import Watermark from '../components/Watermark';
 
@@ -26,13 +26,7 @@ export default function ItemDetails() {
     event.preventDefault();
     if (!user) { navigate('/login'); return; }
     setReportError('');
-    const { error: insertError } = await supabase.from('reports').insert({
-      reporter_id: user.id,
-      target_type: reportTarget,
-      target_id: reportTarget === 'listing' ? listing.id : listing.owner_id,
-      reason: reportReason.trim(),
-    });
-    if (insertError) { setReportError(insertError.message); return; }
+    updateStore(s => s.reports.unshift({ id: `report-${Date.now()}`, reporter_id: user.id, reporter_name: user.email, target_type: reportTarget, target_id: reportTarget === 'listing' ? listing.id : listing.owner_id, reason: reportReason.trim(), status: 'open', created_at: new Date().toISOString() }));
     setReportSubmitted(true);
     setReporting(false);
     setReportReason('');

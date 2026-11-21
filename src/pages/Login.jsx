@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../auth/AuthContext';
-import { supabase } from '../lib/supabaseClient';
 import { isCitEmail } from '../utils/validation';
 
 export default function Login() {
@@ -19,7 +18,7 @@ export default function Login() {
     event.preventDefault();
     const nextErrors = {};
     if (!isCitEmail(email)) nextErrors.email = 'Use your @cit.edu email';
-    if (!password.trim()) nextErrors.password = 'Enter your password';
+    if (!password) nextErrors.password = 'Enter your password';
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
     setSubmitting(true);
@@ -30,11 +29,7 @@ export default function Login() {
       return;
     }
     const requestedPath = location.state?.from?.pathname;
-    let destination = requestedPath || '/dashboard';
-    if (!requestedPath && data?.user?.id) {
-      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).maybeSingle();
-      if (profile?.role === 'admin') destination = '/';
-    }
+    let destination = requestedPath || (data?.user?.classification === 'Admin' ? '/admin' : '/dashboard');
     setSubmitting(false);
     navigate(destination, { replace: true });
   };
