@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../auth/AuthContext';
@@ -13,6 +13,11 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { signIn } = useAuth();
+
+  useEffect(() => {
+    if (errors.form) document.getElementById('login-form-error')?.focus();
+    else if (Object.keys(errors).length) document.querySelector('#login-form [aria-invalid="true"]')?.focus();
+  }, [errors]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -37,6 +42,12 @@ export default function Login() {
   const togglePassword = () => setShowPassword((visible) => !visible);
   const updateEmail = (event) => setEmail(event.target.value);
   const updatePassword = (event) => setPassword(event.target.value);
+  const fillDemoAccount = (demoEmail) => {
+    setEmail(demoEmail);
+    setPassword('demo');
+    setErrors({});
+    setShowPassword(false);
+  };
 
   return (
     <AuthLayout headline="Your campus, your marketplace.">
@@ -44,8 +55,14 @@ export default function Login() {
         <h2>Welcome back</h2>
         <p>Log in with your @cit.edu email.</p>
       </div>
-      <form className="auth-form" onSubmit={submit} noValidate>
-        {errors.form && <p className="auth-error" role="alert">{errors.form}</p>}
+      <div className="demo-login-options">
+        <div>
+          <button type="button" onClick={() => fillDemoAccount('ana.reyes@cit.edu')}>Renter / Buyer / Seller</button>
+          <button type="button" onClick={() => fillDemoAccount('admin@cit.edu')}>Admin</button>
+        </div>
+      </div>
+      <form className="auth-form" id="login-form" onSubmit={submit} noValidate>
+        {errors.form && <p className="auth-error" id="login-form-error" role="alert" tabIndex={-1}>{errors.form}</p>}
         <div className="auth-field">
           <label htmlFor="login-email">Email</label>
           <input

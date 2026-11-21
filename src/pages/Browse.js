@@ -6,6 +6,7 @@ import BrowseHero from '../components/browse/BrowseHero';
 import PopularTiles from '../components/browse/PopularTiles';
 import useMarketplaceListings from '../hooks/useMarketplaceListings';
 import useListingFilters from '../hooks/useListingFilters';
+import getScrollBehavior from '../utils/getScrollBehavior';
 
 const categories = ['All categories', 'Electronics', 'Lab equipment', 'Textbooks', 'Other'];
 const conditions = ['Any condition', 'Like new', 'Good', 'Fair'];
@@ -22,7 +23,7 @@ export default function Browse() {
     const type = searchParams.get('type');
     const search = searchParams.get('search');
     if (category && categories.includes(category)) setCategory(category);
-    if (type && ['sale', 'rent', 'both'].includes(type)) setType(type);
+    if (type && ['all', 'sale', 'rent', 'both'].includes(type)) setType(type);
     if (search) setQuery(search);
   }, [searchParams, setCategory, setQuery, setType]);
 
@@ -30,6 +31,8 @@ export default function Browse() {
     if (sortBy !== 'price-low') return filters.filteredListings;
     return [...filters.filteredListings].sort((first, second) => first.price - second.price);
   }, [filters.filteredListings, sortBy]);
+  const invalidPriceRange = filters.minPrice !== '' && filters.maxPrice !== ''
+    && Number(filters.minPrice) > Number(filters.maxPrice);
 
   const clearFilters = () => {
     filters.setQuery('');
@@ -39,13 +42,24 @@ export default function Browse() {
     filters.setMinPrice('');
     filters.setMaxPrice('');
   };
+  const activeFilters = [
+    filters.query.trim() && { label: `Search: ${filters.query.trim()}`, clear: () => setQuery('') },
+    filters.category !== 'All categories' && { label: `Category: ${filters.category}`, clear: () => setCategory('All categories') },
+    filters.type !== 'all' && { label: `Type: ${{ sale: 'For sale', rent: 'For rent', both: 'Sale or rent' }[filters.type]}`, clear: () => setType('all') },
+    filters.condition !== 'Any condition' && { label: `Condition: ${filters.condition}`, clear: () => filters.setCondition('Any condition') },
+    (filters.minPrice !== '' || filters.maxPrice !== '') && {
+      label: `Price: ${filters.minPrice ? `₱${filters.minPrice}` : 'Any'}–${filters.maxPrice ? `₱${filters.maxPrice}` : 'Any'}`,
+      clear: () => { filters.setMinPrice(''); filters.setMaxPrice(''); },
+    },
+  ].filter(Boolean);
+  const hasActiveFilters = activeFilters.length > 0;
 
   return (
     <div className="browse-storefront">
       <main>
         <BrowseHero setType={filters.setType} />
         <div className="browse-main-content">
-          <form className="browse-content-search" role="search" onSubmit={(event) => { event.preventDefault(); document.getElementById('browse-results')?.scrollIntoView({ behavior: 'smooth' }); }}>
+          <form className="browse-content-search" role="search" aria-label="Search marketplace listings" onSubmit={(event) => { event.preventDefault(); document.getElementById('browse-results')?.scrollIntoView({ behavior: getScrollBehavior() }); }}>
             <label className="sr-only" htmlFor="browse-search-category">Search category</label>
             <select id="browse-search-category" value={filters.category} onChange={(event) => filters.setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select>
             <label className="sr-only" htmlFor="browse-search-query">Search items, categories, or people</label>
@@ -59,21 +73,23 @@ export default function Browse() {
             <div className="browse-listings-title-row"><div><span className="browse-section-eyebrow">THE LATEST FROM YOUR CAMPUS</span><h2 id="browse-listings-title">Fresh listings</h2></div><p>Find something useful. Pass something along.</p></div>
             <div className="browse-layout">
               <aside className="filter-panel browse-filter-panel" aria-label="Listing filters">
-                <div className="filter-title"><h2>Filters</h2><button type="button" onClick={clearFilters}>Clear all</button></div>
-                <fieldset><legend>What are you after?</legend><div className="segmented filter-segment">{[['all', 'All'], ['sale', 'Sale'], ['rent', 'Rent'], ['both', 'Both']].map(([value, label]) => <button type="button" key={value} className={filters.type === value ? 'selected' : ''} aria-pressed={filters.type === value} onClick={() => filters.setType(value)}>{label}</button>)}</div></fieldset>
+                <div className="filter-title"><h2>Filters</h2><button type="button" onClick={clearFilters} disabled={!hasActiveFilters}>Clear all</button></div>
+                <fieldset><legend>What are you after?</legend><div className="segmented filter-segment">{[['all', 'All types'], ['sale', 'For sale'], ['rent', 'For rent'], ['both', 'Sale or rent']].map(([value, label]) => <button type="button" key={value} className={filters.type === value ? 'selected' : ''} aria-pressed={filters.type === value} onClick={() => filters.setType(value)}>{label}</button>)}</div></fieldset>
                 <label className="field-label" htmlFor="browse-category">Category</label>
                 <select id="browse-category" value={filters.category} onChange={(event) => filters.setCategory(event.target.value)}>{categories.map((item) => <option key={item}>{item}</option>)}</select>
                 <label className="field-label" htmlFor="browse-min-price">Minimum price</label>
                 <div className="price-input"><span>₱</span><input id="browse-min-price" type="number" min="0" placeholder="No minimum" value={filters.minPrice} onChange={(event) => filters.setMinPrice(event.target.value)} /></div>
                 <label className="field-label" htmlFor="browse-max-price">Maximum price</label>
-                <div className="price-input"><span>₱</span><input id="browse-max-price" type="number" min="0" placeholder="No maximum" value={filters.maxPrice} onChange={(event) => filters.setMaxPrice(event.target.value)} /></div>
+                <div className="price-input"><span>₱</span><input id="browse-max-price" type="number" min="0" placeholder="No maximum" value={filters.maxPrice} aria-invalid={invalidPriceRange} aria-describedby={invalidPriceRange ? 'browse-price-range-error' : undefined} onChange={(event) => filters.setMaxPrice(event.target.value)} /></div>
+                {invalidPriceRange && <p className="filter-error" id="browse-price-range-error" role="alert">Maximum price must be at least the minimum price.</p>}
                 <label className="field-label" htmlFor="browse-condition">Condition</label>
                 <select id="browse-condition" value={filters.condition} onChange={(event) => filters.setCondition(event.target.value)}>{conditions.map((item) => <option key={item}>{item}</option>)}</select>
               </aside>
 
               <div className="browse-results">
-                <div className="results-heading browse-results-heading"><p><strong>{loading ? '—' : sortedListings.length}</strong> things to discover</p><label htmlFor="sort-listings">Sort by <select id="sort-listings" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="recommended">Recommended</option><option value="price-low">Price: low to high</option></select></label></div>
-                {error ? <div className="empty-state browse-empty"><h2>Listings couldn’t load</h2><p>{error}</p></div> : loading ? <p className="admin-empty">Loading approved listings…</p> : sortedListings.length ? <div className="listing-grid browse-listing-grid">{sortedListings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div> : <div className="empty-state browse-empty"><span className="browse-empty-icon" aria-hidden="true">⌕</span><h2>{listings.length ? 'No listings match those filters' : 'No listings yet'}</h2><p>{listings.length ? 'Try changing your search or clearing a filter.' : 'Be the first to share something useful with the CIT community.'}</p><button type="button" className="browse-clear-button" onClick={clearFilters}>Clear filters</button><Link className="browse-post-button" to="/sell">Post a listing <span aria-hidden="true">↗</span></Link></div>}
+                <div className="results-heading browse-results-heading"><p role="status" aria-live="polite" aria-atomic="true">{loading ? 'Loading listings…' : error ? 'Listings are unavailable.' : invalidPriceRange ? 'Check your price range.' : `${sortedListings.length} ${sortedListings.length === 1 ? 'listing' : 'listings'} found`}</p><label htmlFor="sort-listings">Sort by <select id="sort-listings" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="recommended">Recommended</option><option value="price-low">Price: low to high</option></select></label></div>
+                {hasActiveFilters && <div className="active-filter-list" role="group" aria-label="Active filters"><span>Filters applied:</span>{activeFilters.map((filter) => <button key={filter.label} type="button" className="active-filter-chip" aria-label={`Remove ${filter.label} filter`} onClick={filter.clear}>{filter.label}<span aria-hidden="true">×</span></button>)}<button type="button" className="active-filter-clear" onClick={clearFilters}>Clear all</button></div>}
+                {error ? <div className="empty-state browse-empty"><h2>Listings couldn’t load</h2><p>{error}</p></div> : loading ? <p className="admin-empty">Loading approved listings…</p> : sortedListings.length ? <div className="listing-grid browse-listing-grid">{sortedListings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div> : <div className="empty-state browse-empty"><span className="browse-empty-icon" aria-hidden="true">⌕</span><h2>{invalidPriceRange ? 'Check your price range' : listings.length ? 'No listings match those filters' : 'No listings yet'}</h2><p>{invalidPriceRange ? 'Enter a maximum price that is at least your minimum price.' : listings.length ? 'Try changing your search or clearing a filter.' : 'Be the first to share something useful with the CIT community.'}</p>{hasActiveFilters && <button type="button" className="browse-clear-button" onClick={clearFilters}>Clear filters</button>}<Link className="browse-post-button" to="/sell">Post a listing <span aria-hidden="true">↗</span></Link></div>}
               </div>
             </div>
           </section>

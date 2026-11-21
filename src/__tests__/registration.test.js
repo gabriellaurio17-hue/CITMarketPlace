@@ -27,7 +27,7 @@ function BrowseListingsProbe() {
   return <ul data-testid="browse-listings">{listings.map(listing => <li key={listing.id}>{listing.title} | {listing.description} | {listing.price} | {listing.category} | {listing.owner}</li>)}</ul>;
 }
 
-function signup(username, email, password, classification = 'Student') {
+function signup(username, email, password, classification = 'Buyer/Renter/Seller') {
   render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><AuthProvider><Signup /></AuthProvider></MemoryRouter>);
   fireEvent.change(screen.getByLabelText('Username'), { target: { value: username } });
   fireEvent.change(screen.getByLabelText('@cit.edu email'), { target: { value: email } });
@@ -52,23 +52,44 @@ async function login(email, password, username, classification) {
   await waitFor(() => expect(screen.getByTestId('active-account')).toHaveTextContent(`${username}:${classification}`));
   await waitFor(() => expect(screen.getByTestId('current-route')).toHaveTextContent(classification === 'Admin' ? '/admin' : '/dashboard'));
   if (classification === 'Admin') expect(screen.getAllByRole('heading', { name: 'Pending Listings' }).length).toBeGreaterThan(0);
-  if (classification === 'Faculty/Staff') expect(screen.getByText('FACULTY & STAFF CAMPUS CORNER')).toBeInTheDocument();
-  if (classification === 'Student') expect(screen.getByText('YOUR CAMPUS CORNER')).toBeInTheDocument();
+  else expect(screen.getByText('YOUR CAMPUS CORNER')).toBeInTheDocument();
 }
 
 afterEach(() => { cleanup(); localStorage.clear(); });
+
+test('demo account buttons fill the login email and password fields', () => {
+  render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><AuthProvider><Login /></AuthProvider></MemoryRouter>);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Renter / Buyer / Seller' }));
+  expect(screen.getByLabelText('Email')).toHaveValue('ana.reyes@cit.edu');
+  expect(screen.getByLabelText('Password')).toHaveValue('demo');
+
+  fireEvent.click(screen.getByRole('button', { name: 'Admin' }));
+  expect(screen.getByLabelText('Email')).toHaveValue('admin@cit.edu');
+  expect(screen.getByLabelText('Password')).toHaveValue('demo');
+});
 
 test('accepts trimmed CIT emails case-insensitively and rejects other domains', () => {
   [' student1@cit.edu ', 'john123@CIT.EDU', 'anyname@cit.edu'].forEach(email => expect(isCitEmail(email)).toBe(true));
   ['student@gmail.com', 'john@yahoo.com', 'user@outlook.com', 'student@cit.com'].forEach(email => expect(isCitEmail(email)).toBe(false));
 });
 
+test('signup offers only member and admin account classifications', () => {
+  render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><AuthProvider><Signup /></AuthProvider></MemoryRouter>);
+
+  expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
+    'Choose a classification',
+    'Buyer/Renter/Seller',
+    'Admin',
+  ]);
+});
+
 test('registers three unique accounts, persists them, and allows credential-based switching', async () => {
   localStorage.clear();
   const people = [
     ['adminone', 'adminone@cit.edu', 'pass-one', 'Admin'],
-    ['studenttwo', 'studenttwo@cit.edu', 'pass-two', 'Student'],
-    ['facultythree', 'facultythree@cit.edu', 'pass-three', 'Faculty/Staff'],
+    ['membertwo', 'membertwo@cit.edu', 'pass-two', 'Buyer/Renter/Seller'],
+    ['memberthree', 'memberthree@cit.edu', 'pass-three', 'Buyer/Renter/Seller'],
   ];
   for (const [username, email, password, classification] of people) {
     signup(username, email, password, classification);
@@ -80,7 +101,7 @@ test('registers three unique accounts, persists them, and allows credential-base
   const saved = JSON.parse(localStorage.getItem('cit-marketplace-demo-v1'));
   const registered = saved.accounts.filter(account => people.some(person => person[0] === account.username));
   expect(registered).toHaveLength(3);
-  expect(registered.map(account => account.classification)).toEqual(['Admin', 'Student', 'Faculty/Staff']);
+  expect(registered.map(account => account.classification)).toEqual(['Admin', 'Buyer/Renter/Seller', 'Buyer/Renter/Seller']);
 
   loginView();
   await login(people[0][1], people[0][2], people[0][0], people[0][3]);
@@ -104,12 +125,12 @@ test('registers three unique accounts, persists them, and allows credential-base
 
 test('rejects duplicate emails and usernames, and login checks the saved password', async () => {
   localStorage.clear();
-  signup('UniqueName', 'unique@cit.edu', 'correct', 'Student');
+  signup('UniqueName', 'unique@cit.edu', 'correct', 'Buyer/Renter/Seller');
   await screen.findByRole('heading', { name: 'Account ready' });
   cleanup();
   localStorage.removeItem('cit-marketplace-demo-account');
 
-  signup('AnotherName', 'UNIQUE@CIT.EDU', 'correct', 'Faculty/Staff');
+  signup('AnotherName', 'UNIQUE@CIT.EDU', 'correct', 'Buyer/Renter/Seller');
   expect(await screen.findByRole('alert')).toHaveTextContent('email already exists');
   cleanup();
   signup('uniquename', 'different@cit.edu', 'correct', 'Admin');
@@ -121,7 +142,7 @@ test('rejects duplicate emails and usernames, and login checks the saved passwor
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
   fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Email or password is incorrect');
-  await login(' UNIQUE@CIT.EDU ', 'correct', 'UniqueName', 'Student');
+  await login(' UNIQUE@CIT.EDU ', 'correct', 'UniqueName', 'Buyer/Renter/Seller');
 });
 
 test('new listings stay hidden while pending, appear live when approved, and persist after refresh', async () => {

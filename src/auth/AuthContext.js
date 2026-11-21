@@ -20,7 +20,7 @@ export function AuthProvider({ children }) {
       if (usernameExists(username)) return { error: { message: 'That username is already taken.' } };
       let account;
       const classification = form.classification;
-      if (!['Admin', 'Student', 'Faculty/Staff'].includes(classification)) return { error: { message: 'Choose Admin, Student, or Faculty/Staff.' } };
+      if (!['Admin', 'Buyer/Renter/Seller'].includes(classification)) return { error: { message: 'Choose Buyer/Renter/Seller or Admin.' } };
       updateStore(s => { account = { id: `member-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, username, password: form.password, full_name: username, email, role: classification === 'Admin' ? 'admin' : 'user', classification, account_status: 'active', is_verified: true, created_at: new Date().toISOString() }; s.accounts.push(account); });
       return { data: { user: account }, error: null };
     },

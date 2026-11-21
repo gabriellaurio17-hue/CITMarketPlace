@@ -10,8 +10,9 @@ export default function Layout() {
   const dark = location.pathname.startsWith('/items/');
   return (
     <div className={dark ? 'app-shell dark-shell' : 'app-shell'}>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <Navbar dark={dark} />
-      <div className="route-content"><Outlet /></div>
+      <div className="route-content" id="main-content" tabIndex={-1}><Outlet /></div>
       {!dark && location.pathname === '/' && (
         <footer className="site-footer">
           cit marketplace <span>·</span> payment and item exchange happen offline by cash and meetup

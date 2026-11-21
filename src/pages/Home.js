@@ -7,7 +7,8 @@ import useMarketplaceListings from '../hooks/useMarketplaceListings';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState('all');
-  const [searchType, setSearchType] = useState('both');
+  const [searchType, setSearchType] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
   const { listings, loading, error } = useMarketplaceListings();
   const freshListings = useMemo(
@@ -15,10 +16,15 @@ export default function Home() {
     [activeTab, listings]
   );
 
-  const openBrowse = () => navigate(`/browse?type=${searchType}`);
+  const openBrowse = (event) => {
+    event.preventDefault();
+    const params = new URLSearchParams({ type: searchType });
+    if (searchQuery.trim()) params.set('search', searchQuery.trim());
+    navigate(`/browse?${params.toString()}`);
+  };
 
   return (
-    <div className="home-page">
+    <div className="home-page" role="main">
       <section className="home-hero watermark-parent has-watermark">
         <Watermark>MARKET</Watermark>
         <div className="hero-copy">
@@ -32,15 +38,15 @@ export default function Home() {
       <div className="bento-backdrop-zone watermark-parent photo-panel">
         <BackdropImage src="/images/wall-of-fame.jpg" position="center 30%" tint="none" overlayColor="rgba(43,5,9,.25)" />
         <section className="bento-grid" aria-label="Marketplace features">
-        <div className="bento-card search-bento">
+        <form className="bento-card search-bento" role="search" aria-label="Search marketplace listings" onSubmit={openBrowse}>
           <div className="bento-label light-label">FIND YOUR NEXT THING</div>
           <div className="segmented segmented-dark" role="group" aria-label="Listing type">
-            {['sale', 'rent', 'both'].map((kind) => <button key={kind} type="button" className={searchType === kind ? 'selected' : ''} onClick={() => setSearchType(kind)}>{kind === 'both' ? 'Both' : kind === 'sale' ? 'Sale' : 'Rent'}</button>)}
+            {['all', 'sale', 'rent'].map((kind) => <button key={kind} type="button" className={searchType === kind ? 'selected' : ''} aria-pressed={searchType === kind} onClick={() => setSearchType(kind)}>{kind === 'all' ? 'All listings' : kind === 'sale' ? 'For sale' : 'For rent'}</button>)}
           </div>
-          <button className="search-row" type="button" onClick={openBrowse}><span className="row-icon">⌕</span><span>What are you looking for?</span><span>↗</span></button>
-          <button className="search-row" type="button" onClick={() => navigate('/browse')}><span className="row-icon">⌖</span><span>Anywhere on campus</span><span>⌄</span></button>
-          <button className="search-submit" type="button" onClick={openBrowse}>Find something good <span>→</span></button>
-        </div>
+          <label className="search-row home-search-row"><span className="row-icon" aria-hidden="true">⌕</span><input aria-label="Search items, categories, or sellers" placeholder="Search the marketplace..." value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /><span aria-hidden="true">↗</span></label>
+          <div className="search-row search-row-static"><span className="row-icon" aria-hidden="true">⌖</span><span><strong>Campus pickup</strong><small>Arrange a public meetup with the seller</small></span></div>
+          <button className="search-submit" type="submit">Find something good <span aria-hidden="true">→</span></button>
+        </form>
         <Link to="/browse?category=Lab%20equipment" className="bento-card lab-bento">
           <div className="lab-visual"><span className="lab-ring" /><span className="lab-tube" /><span className="lab-label">LAB</span></div>
           <div className="lab-caption"><span>GOOD TO BORROW</span><strong>Lab equipment</strong></div>
@@ -61,7 +67,7 @@ export default function Home() {
         <div className="bento-card verified-bento">
           <span className="verified-star">✳</span><span className="bento-label light-label">CAMPUS-ONLY, ALWAYS</span>
           <h3>Instantly know every seller is verified.</h3>
-          <button type="button" className="watch-button" onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}><span>▶</span> Watch how it works</button>
+          <a className="watch-button" href="#how-it-works"><span aria-hidden="true">↘</span> How the marketplace works</a>
         </div>
         </section>
       </div>
@@ -71,8 +77,8 @@ export default function Home() {
           <div><span className="eyebrow">A FEW GOOD FINDS</span><h2>Fresh on campus<span>.</span></h2></div>
           <Link className="text-link" to="/browse">See everything <span>↗</span></Link>
         </div>
-        <div className="tabs" role="tablist" aria-label="Listing type">
-          {[['all', 'All'], ['sale', 'For sale'], ['rent', 'For rent']].map(([value, label]) => <button role="tab" aria-selected={activeTab === value} className={activeTab === value ? 'tab active-tab' : 'tab'} key={value} onClick={() => setActiveTab(value)}>{label}</button>)}
+        <div className="tabs" role="group" aria-label="Filter featured listings">
+          {[['all', 'All'], ['sale', 'For sale'], ['rent', 'For rent']].map(([value, label]) => <button type="button" aria-pressed={activeTab === value} className={activeTab === value ? 'tab active-tab' : 'tab'} key={value} onClick={() => setActiveTab(value)}>{label}</button>)}
         </div>
         {error && <p className="admin-alert" role="alert">Couldn’t load listings: {error}</p>}
         {loading ? <p className="admin-empty">Finding the latest campus listings…</p> : freshListings.length ? <div className="listing-grid">{freshListings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div> : <p className="admin-empty">No approved listings yet. Check back soon.</p>}

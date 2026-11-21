@@ -15,7 +15,8 @@ export default function useListingFilters(listings) {
         .some((value) => value.toLowerCase().includes(normalizedQuery));
       const matchesCategory = category === 'All categories' || listing.category === category;
       const matchesCondition = condition === 'Any condition' || listing.condition === condition;
-      const matchesType = type === 'all' || type === 'both' || listing.type === type;
+      const matchesType = type === 'all' || listing.type === type
+        || (['sale', 'rent'].includes(type) && listing.type === 'both');
       const matchesMinPrice = minPrice === '' || listing.price >= Number(minPrice);
       const matchesMaxPrice = maxPrice === '' || listing.price <= Number(maxPrice);
       return matchesQuery && matchesCategory && matchesCondition && matchesType && matchesMinPrice && matchesMaxPrice;

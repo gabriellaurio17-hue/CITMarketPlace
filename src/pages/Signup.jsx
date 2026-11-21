@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../auth/AuthContext';
@@ -20,6 +20,11 @@ export default function Signup() {
   const [submittedEmail, setSubmittedEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const { signUp } = useAuth();
+
+  useEffect(() => {
+    if (errors.form) document.getElementById('signup-form-error')?.focus();
+    else if (Object.keys(errors).length) document.querySelector('#signup-form [aria-invalid="true"]')?.focus();
+  }, [errors]);
 
   const updateField = (field) => (event) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -67,8 +72,8 @@ export default function Signup() {
         <h2>Create your account</h2>
         <p>Create an account with your CIT email address.</p>
       </div>
-      <form className="auth-form auth-signup-form" onSubmit={submit} noValidate>
-        {errors.form && <p className="auth-error" role="alert">{errors.form}</p>}
+      <form className="auth-form auth-signup-form" id="signup-form" onSubmit={submit} noValidate>
+        {errors.form && <p className="auth-error" id="signup-form-error" role="alert" tabIndex={-1}>{errors.form}</p>}
         <div className="auth-field">
           <label htmlFor="signup-username">Username</label>
           <input id="signup-username" autoComplete="username" value={form.username} onChange={updateField('username')} aria-required="true" aria-invalid={Boolean(errors.username)} aria-describedby={errors.username ? 'signup-username-error' : undefined} />
@@ -83,9 +88,8 @@ export default function Signup() {
           <label htmlFor="signup-classification">Account classification</label>
           <select id="signup-classification" value={form.classification} onChange={updateField('classification')} aria-required="true" aria-invalid={Boolean(errors.classification)} aria-describedby={errors.classification ? 'signup-classification-error' : undefined}>
             <option value="">Choose a classification</option>
+            <option value="Buyer/Renter/Seller">Buyer/Renter/Seller</option>
             <option value="Admin">Admin</option>
-            <option value="Student">Student</option>
-            <option value="Faculty/Staff">Faculty/Staff</option>
           </select>
           {errors.classification && <p className="auth-error" id="signup-classification-error" role="alert">{errors.classification}</p>}
         </div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import DoodleBackground from './DoodleBackground';
+import getScrollBehavior from '../../utils/getScrollBehavior';
 
 const messages = [
   ['Find your next good thing.', 'Buy it, borrow it, make a campus connection.'],
@@ -10,7 +11,7 @@ export default function BrowseHero({ setType }) {
   const [slide, setSlide] = useState(0);
   const scrollToListings = (type) => {
     if (type) setType(type);
-    document.getElementById('browse-results')?.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('browse-results')?.scrollIntoView({ behavior: getScrollBehavior() });
   };
   const [heading, caption] = messages[slide];
   return (

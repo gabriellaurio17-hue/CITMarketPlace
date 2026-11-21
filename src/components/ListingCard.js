@@ -8,7 +8,8 @@ function ListingCard({ listing }) {
     : null;
   return (
     <Link className="listing-card" to={`/items/${listing.id}`}>
-      <div className={`listing-art art-${listing.gradient}${listing.imageUrl ? ' listing-art-photo' : ''}`} style={listing.imageUrl ? { backgroundImage: `url("${listing.imageUrl}")` } : undefined}>
+      <div className={`listing-art art-${listing.gradient}`}>
+        {listing.imageUrl && <img className="listing-photo" src={listing.imageUrl} alt={listing.title} />}
         <span className={`kind-pill ${listing.type}`}>{listing.type === 'rent' ? 'For rent' : listing.type === 'both' ? 'Sale or rent' : 'For sale'}</span>
         {!listing.imageUrl && <span className="art-object" aria-hidden="true" />}
       </div>

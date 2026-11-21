@@ -16,6 +16,7 @@ export default function AdminLayout() {
 
   return (
     <div className="administrator-page-shell">
+      <a className="skip-link" href="#admin-main-content">Skip to main content</a>
       <div className="administrator-frame">
         <header className="administrator-topbar">
           <div className="admin-brand-pill"><span className="admin-brand-mark"><Icon name="swap" size={21} /></span><span>CITMarketplace</span></div>
@@ -31,7 +32,7 @@ export default function AdminLayout() {
             <button className="logout-link" type="button" onClick={logOut}>Log out</button>
           </div>
         </header>
-        <div className="administrator-content-row"><Outlet context={{ logOut }} /></div>
+        <div className="administrator-content-row" id="admin-main-content" tabIndex={-1}><Outlet context={{ logOut }} /></div>
       </div>
     </div>
   );

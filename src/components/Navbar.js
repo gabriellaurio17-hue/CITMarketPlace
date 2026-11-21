@@ -47,13 +47,6 @@ function Navbar({ dark = false }) {
             <NavLink to="/rentals" className={navClass}>Rentals</NavLink>
             <NavLink to="/messages" className={navClass}>Messages</NavLink>
           </nav>
-        ) : dark ? (
-          <nav className="nav-links detail-nav" aria-label="Main navigation">
-            <NavLink to="/browse" className={navClass}>Browse</NavLink>
-            <NavLink to="/messages" className={navClass}>Messages</NavLink>
-            <NavLink to="/dashboard" className={navClass}>Dashboard</NavLink>
-            <NavLink to="/notifications" className={navClass}>Notifications</NavLink>
-          </nav>
         ) : (
           <nav className="nav-links" aria-label="Main navigation">
             <NavLink to="/browse" className={navClass}>Browse</NavLink>
