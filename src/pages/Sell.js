@@ -2,35 +2,67 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { addListing, categories, readStore, updateStore } from '../data/localStore';
+import { createMarketplaceListing, updateMarketplaceListing } from '../data/marketplaceApi';
+import useMarketplaceListings from '../hooks/useMarketplaceListings';
+import { isSupabaseConfigured } from '../lib/supabase';
 const initialForm = { title: '', description: '', category: '', condition: 'Good', type: 'sale', price: '', deposit: '', pickup: '', rentalTerms: '' };
 export default function Sell() {
   const [form, setForm] = useState(initialForm); const [photos, setPhotos] = useState([]); const [error, setError] = useState(''); const [photoError, setPhotoError] = useState(''); const [success, setSuccess] = useState(false); const errorRef = useRef(null);
   const { user, profile } = useAuth(); const [searchParams] = useSearchParams(); const editId = searchParams.get('edit');
+  const { listings: remoteListings, loading: listingsLoading, refresh: refreshListings } = useMarketplaceListings({ visibleOnly: false });
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  useEffect(() => { if (!editId) return; const item = readStore().listings.find(x => x.id === editId && x.owner_id === user?.id); if (item) setForm({ title: item.title, description: item.description, category: item.category, condition: item.condition, type: item.listing_type, price: String(item.price), deposit: String(item.deposit || ''), pickup: item.location, rentalTerms: item.rental_terms || '' }); else setError('This listing could not be found in your account.'); }, [editId, user]);
+  useEffect(() => {
+    if (!editId || (isSupabaseConfigured && listingsLoading)) return;
+    const source = isSupabaseConfigured ? remoteListings : readStore().listings;
+    const item = source.find(x => x.id === editId && x.owner_id === user?.id);
+    if (item) setForm({ title: item.title, description: item.description, category: item.category, condition: item.condition, type: item.listing_type, price: String(item.price), deposit: String(item.deposit || ''), pickup: item.location, rentalTerms: item.rental_terms || '' });
+    else setError('This listing could not be found in your account.');
+  }, [editId, user, remoteListings, listingsLoading]);
+  useEffect(() => {
+    if (!editId) return;
+    if (isSupabaseConfigured && listingsLoading) return;
+    const source = isSupabaseConfigured ? remoteListings : readStore().listings;
+    const item = source.find(x => x.id === editId && x.owner_id === user?.id);
+    setPhotos((item?.imageUrls || item?.images || []).map((src, index) => ({ name: `Saved photo ${index + 1}`, src, saved: true })));
+  }, [editId, user, remoteListings, listingsLoading]);
   const update = field => event => { setSuccess(false); setForm(current => ({ ...current, [field]: event.target.value })); };
   const selectPhotos = event => {
     const selected = Array.from(event.target.files || []);
     if (selected.length > 5) { setPhotoError('Choose no more than 5 photos.'); setPhotos([]); event.target.value = ''; return; }
     if (selected.some(photo => photo.size > 10 * 1024 * 1024)) { setPhotoError('Each photo must be 10 MB or smaller.'); setPhotos([]); event.target.value = ''; return; }
+    Promise.all(selected.map(photo => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: photo.name, src: reader.result, saved: false });
+      reader.onerror = reject;
+      reader.readAsDataURL(photo);
+    }))).then(savedSelections => setPhotos(current => {
+      const existing = editId ? current.filter(photo => photo.saved) : [];
+      return [...existing, ...savedSelections].slice(0, 5);
+    })).catch(() => setPhotoError('Could not read one of the selected photos.'));
     setPhotoError('');
-    setPhotos(selected);
   };
-  const submit = event => {
+  const submit = async event => {
     event.preventDefault();
     setError('');
     setSuccess(false);
-    const payload = { owner_id: user.id, category: form.category, title: form.title.trim(), description: form.description.trim(), condition: form.condition, listing_type: form.type, price: Number(form.price), deposit: form.type === 'sale' ? 0 : Number(form.deposit || 0), location: form.pickup.trim(), rental_terms: form.rentalTerms.trim(), imageUrls: [] };
+    if (!user || !profile?.is_verified) { setError('Verify your account before submitting listings.'); return; }
+    const imageUrls = photos.map(photo => photo.src).filter(Boolean);
+    const payload = { owner_id: user.id, category: form.category, title: form.title.trim(), description: form.description.trim(), condition: form.condition, listing_type: form.type, price: Number(form.price), deposit: form.type === 'sale' ? 0 : Number(form.deposit || 0), location: form.pickup.trim(), rental_terms: form.rentalTerms.trim(), imageUrls, images: imageUrls };
     try {
       if (editId) {
-        let updated = false;
-        updateStore(s => { const row = s.listings.find(x => x.id === editId && x.owner_id === user.id); if (row) { Object.assign(row, payload, { categories: { name: payload.category }, approval_status: 'pending' }); updated = true; } });
-        if (!updated) throw new Error('This listing could not be found in your account.');
-      } else addListing(payload);
+        if (isSupabaseConfigured) await updateMarketplaceListing(editId, user.id, payload);
+        else {
+          let updated = false;
+          updateStore(s => { const row = s.listings.find(x => x.id === editId && x.owner_id === user.id); if (row) { Object.assign(row, payload, { categories: { name: payload.category }, approval_status: 'pending' }); updated = true; } });
+          if (!updated) throw new Error('This listing could not be found in your account.');
+        }
+      } else if (isSupabaseConfigured) await createMarketplaceListing(payload);
+      else addListing(payload);
+      if (isSupabaseConfigured) await refreshListings();
       setSuccess(true);
       if (!editId) { setForm(initialForm); setPhotos([]); event.currentTarget.reset(); }
     } catch (saveError) {
-      setError(`Could not save your listing in this browser. ${saveError.message || 'Please try again.'}`);
+      setError(`Could not save your listing. ${saveError.message || 'Please try again.'}`);
     }
   };
   return <div className="sell-page content-width" role="main">

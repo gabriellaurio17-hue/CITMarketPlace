@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import AuthLayout from '../components/AuthLayout';
 import { useAuth } from '../auth/AuthContext';
 import { isCitEmail } from '../utils/validation';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 const initialForm = {
   username: '',
@@ -18,6 +19,11 @@ export default function Signup() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+  const [verificationSuccess, setVerificationSuccess] = useState(false);
+  const [registeredAccount, setRegisteredAccount] = useState(null);
+  const [emailConfirmationRequired, setEmailConfirmationRequired] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const { signUp } = useAuth();
 
@@ -44,23 +50,92 @@ export default function Signup() {
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
     setSubmitting(true);
-    const { error } = await signUp(form);
+    const { data, error } = await signUp(form);
     setSubmitting(false);
     if (error) {
       setErrors({ form: error.message });
       return;
     }
     setSubmittedEmail(form.email.trim());
+    setRegisteredAccount(data?.user || null);
+    setEmailConfirmationRequired(Boolean(data?.emailConfirmationRequired));
   };
 
   if (submittedEmail) {
+    if (emailConfirmationRequired) {
+      return (
+        <AuthLayout headline="Join your campus marketplace.">
+          <section className="auth-success" aria-live="polite">
+            <span className="auth-success-icon" aria-hidden="true">âœ“</span>
+            <h2>Check your CIT email</h2>
+            <p>Supabase sent a confirmation link to {submittedEmail}. Confirm your email, then log in to continue.</p>
+            <Link className="button auth-secondary-button" to="/login">Go to log in</Link>
+          </section>
+        </AuthLayout>
+      );
+    }
+    if (isSupabaseConfigured) {
+      return (
+        <AuthLayout headline="Join your campus marketplace.">
+          <section className="auth-success" aria-live="polite">
+            <span className="auth-success-icon" aria-hidden="true">âœ“</span>
+            <h2>Account created</h2>
+            <p>Your Supabase account was created for {submittedEmail}. Marketplace access may require administrator verification.</p>
+            <Link className="button auth-secondary-button" to="/dashboard">Continue to your dashboard</Link>
+          </section>
+        </AuthLayout>
+      );
+    }
+    if (verificationSuccess) {
+      return (
+        <AuthLayout headline="Join your campus marketplace.">
+          <section className="auth-success" aria-live="polite">
+            <span className="auth-success-icon" aria-hidden="true">✓</span>
+            <h2>Verification submitted</h2>
+            <p>{submittedEmail} passed this frontend-only email verification simulation. Your account is now pending administrator approval before restricted marketplace features become available.</p>
+            <Link className="button auth-secondary-button" to="/login">Continue to log in</Link>
+          </section>
+        </AuthLayout>
+      );
+    }
     return (
       <AuthLayout headline="Join your campus marketplace.">
         <section className="auth-success" aria-live="polite">
-          <span className="auth-success-icon" aria-hidden="true">✓</span>
-          <h2>Account ready</h2>
-          <p>{submittedEmail} is ready to use on this browser. Log in with this email and your password to open your {form.classification} dashboard.</p>
-          <Link className="button auth-secondary-button" to="/login">Back to log in</Link>
+          <span className="auth-success-icon" aria-hidden="true">1</span>
+          <h2>Verify your account</h2>
+          <p>This is a frontend verification simulation—no email was sent. Use the demo code below, then enter it to activate your account.</p>
+          <p><strong>Demo verification code: {registeredAccount?.verification_code}</strong></p>
+          <form className="auth-form" onSubmit={(event) => {
+            event.preventDefault();
+            if (verificationCode.trim() === registeredAccount?.verification_code) {
+              const store = JSON.parse(localStorage.getItem('cit-marketplace-demo-v1') || '{}');
+              const account = store.accounts?.find(item => item.id === registeredAccount.id);
+              if (account) {
+                  account.is_verified = false;
+                  account.verification_status = 'verified_pending_admin';
+                localStorage.setItem('cit-marketplace-demo-v1', JSON.stringify(store));
+                window.dispatchEvent(new Event('marketplace-store-change'));
+              }
+              setVerificationSuccess(true);
+            } else {
+              setVerificationError('The verification code is incorrect.');
+            }
+          }}>
+            <label htmlFor="verification-code">Verification code</label>
+            <input id="verification-code" inputMode="numeric" value={verificationCode} onChange={(event) => { setVerificationCode(event.target.value); setVerificationError(''); }} aria-invalid={Boolean(verificationError)} />
+            {verificationError && <p className="auth-error" role="alert">{verificationError}</p>}
+            <button className="button auth-submit" type="submit">Verify account</button>
+          </form>
+          <button type="button" className="text-button" onClick={() => {
+            const code = String(Math.floor(100000 + Math.random() * 900000));
+            const store = JSON.parse(localStorage.getItem('cit-marketplace-demo-v1') || '{}');
+            const account = store.accounts?.find(item => item.id === registeredAccount.id);
+            if (account) account.verification_code = code;
+            localStorage.setItem('cit-marketplace-demo-v1', JSON.stringify(store));
+            setRegisteredAccount(current => ({ ...current, verification_code: code }));
+            setVerificationCode('');
+            setVerificationError('A new frontend demo code was generated.');
+          }}>Resend verification code</button>
         </section>
       </AuthLayout>
     );
@@ -88,8 +163,8 @@ export default function Signup() {
           <label htmlFor="signup-classification">Account classification</label>
           <select id="signup-classification" value={form.classification} onChange={updateField('classification')} aria-required="true" aria-invalid={Boolean(errors.classification)} aria-describedby={errors.classification ? 'signup-classification-error' : undefined}>
             <option value="">Choose a classification</option>
-            <option value="Buyer/Renter/Seller">Buyer/Renter/Seller</option>
-            <option value="Admin">Admin</option>
+            <option value="Student">Student</option>
+            <option value="Faculty/Staff">Faculty/Staff</option>
           </select>
           {errors.classification && <p className="auth-error" id="signup-classification-error" role="alert">{errors.classification}</p>}
         </div>

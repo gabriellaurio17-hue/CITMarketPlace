@@ -42,24 +42,11 @@ export default function Login() {
   const togglePassword = () => setShowPassword((visible) => !visible);
   const updateEmail = (event) => setEmail(event.target.value);
   const updatePassword = (event) => setPassword(event.target.value);
-  const fillDemoAccount = (demoEmail) => {
-    setEmail(demoEmail);
-    setPassword('demo');
-    setErrors({});
-    setShowPassword(false);
-  };
-
   return (
     <AuthLayout headline="Your campus, your marketplace.">
       <div className="auth-card-heading">
         <h2>Welcome back</h2>
         <p>Log in with your @cit.edu email.</p>
-      </div>
-      <div className="demo-login-options">
-        <div>
-          <button type="button" onClick={() => fillDemoAccount('ana.reyes@cit.edu')}>Renter / Buyer / Seller</button>
-          <button type="button" onClick={() => fillDemoAccount('admin@cit.edu')}>Admin</button>
-        </div>
       </div>
       <form className="auth-form" id="login-form" onSubmit={submit} noValidate>
         {errors.form && <p className="auth-error" id="login-form-error" role="alert" tabIndex={-1}>{errors.form}</p>}

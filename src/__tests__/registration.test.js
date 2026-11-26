@@ -11,7 +11,7 @@ import Admin from '../pages/Admin';
 import DashboardEntry from '../pages/DashboardEntry';
 import Sell from '../pages/Sell';
 import useMarketplaceListings from '../hooks/useMarketplaceListings';
-import { readStore, writeStore } from '../data/localStore';
+import { getBrowseListings, readStore, writeStore } from '../data/localStore';
 import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 
 function AccountStatus() {
@@ -27,7 +27,7 @@ function BrowseListingsProbe() {
   return <ul data-testid="browse-listings">{listings.map(listing => <li key={listing.id}>{listing.title} | {listing.description} | {listing.price} | {listing.category} | {listing.owner}</li>)}</ul>;
 }
 
-function signup(username, email, password, classification = 'Buyer/Renter/Seller') {
+function signup(username, email, password, classification = 'Student') {
   render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><AuthProvider><Signup /></AuthProvider></MemoryRouter>);
   fireEvent.change(screen.getByLabelText('Username'), { target: { value: username } });
   fireEvent.change(screen.getByLabelText('@cit.edu email'), { target: { value: email } });
@@ -52,21 +52,18 @@ async function login(email, password, username, classification) {
   await waitFor(() => expect(screen.getByTestId('active-account')).toHaveTextContent(`${username}:${classification}`));
   await waitFor(() => expect(screen.getByTestId('current-route')).toHaveTextContent(classification === 'Admin' ? '/admin' : '/dashboard'));
   if (classification === 'Admin') expect(screen.getAllByRole('heading', { name: 'Pending Listings' }).length).toBeGreaterThan(0);
-  else expect(screen.getByText('YOUR CAMPUS CORNER')).toBeInTheDocument();
+  else expect(screen.getByRole('heading', { name: 'Verification required' })).toBeInTheDocument();
 }
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 
-test('demo account buttons fill the login email and password fields', () => {
+test('login page does not show demo account buttons', () => {
   render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><AuthProvider><Login /></AuthProvider></MemoryRouter>);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Renter / Buyer / Seller' }));
-  expect(screen.getByLabelText('Email')).toHaveValue('ana.reyes@cit.edu');
-  expect(screen.getByLabelText('Password')).toHaveValue('demo');
-
-  fireEvent.click(screen.getByRole('button', { name: 'Admin' }));
-  expect(screen.getByLabelText('Email')).toHaveValue('admin@cit.edu');
-  expect(screen.getByLabelText('Password')).toHaveValue('demo');
+  expect(screen.queryByRole('button', { name: 'Renter / Buyer / Seller' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Admin' })).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Email')).toHaveValue('');
+  expect(screen.getByLabelText('Password')).toHaveValue('');
 });
 
 test('accepts trimmed CIT emails case-insensitively and rejects other domains', () => {
@@ -74,34 +71,34 @@ test('accepts trimmed CIT emails case-insensitively and rejects other domains', 
   ['student@gmail.com', 'john@yahoo.com', 'user@outlook.com', 'student@cit.com'].forEach(email => expect(isCitEmail(email)).toBe(false));
 });
 
-test('signup offers only member and admin account classifications', () => {
+test('signup offers student, faculty/staff, and admin account classifications', () => {
   render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><AuthProvider><Signup /></AuthProvider></MemoryRouter>);
 
   expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
     'Choose a classification',
-    'Buyer/Renter/Seller',
-    'Admin',
+    'Student',
+    'Faculty/Staff',
   ]);
 });
 
 test('registers three unique accounts, persists them, and allows credential-based switching', async () => {
   localStorage.clear();
   const people = [
-    ['adminone', 'adminone@cit.edu', 'pass-one', 'Admin'],
-    ['membertwo', 'membertwo@cit.edu', 'pass-two', 'Buyer/Renter/Seller'],
-    ['memberthree', 'memberthree@cit.edu', 'pass-three', 'Buyer/Renter/Seller'],
+    ['admin', 'admin@cit.edu', 'demo', 'Admin'],
+    ['membertwo', 'membertwo@cit.edu', 'pass-two', 'Student'],
+    ['memberthree', 'memberthree@cit.edu', 'pass-three', 'Faculty/Staff'],
   ];
-  for (const [username, email, password, classification] of people) {
+  for (const [username, email, password, classification] of people.slice(1)) {
     signup(username, email, password, classification);
-    await screen.findByRole('heading', { name: 'Account ready' });
+    await screen.findByRole('heading', { name: 'Verify your account' });
     cleanup();
     localStorage.removeItem('cit-marketplace-demo-account');
   }
 
   const saved = JSON.parse(localStorage.getItem('cit-marketplace-demo-v1'));
-  const registered = saved.accounts.filter(account => people.some(person => person[0] === account.username));
-  expect(registered).toHaveLength(3);
-  expect(registered.map(account => account.classification)).toEqual(['Admin', 'Buyer/Renter/Seller', 'Buyer/Renter/Seller']);
+  const registered = saved.accounts.filter(account => people.slice(1).some(person => person[0] === account.username));
+  expect(registered).toHaveLength(2);
+  expect(registered.map(account => account.classification)).toEqual(['Student', 'Faculty/Staff']);
 
   loginView();
   await login(people[0][1], people[0][2], people[0][0], people[0][3]);
@@ -125,15 +122,15 @@ test('registers three unique accounts, persists them, and allows credential-base
 
 test('rejects duplicate emails and usernames, and login checks the saved password', async () => {
   localStorage.clear();
-  signup('UniqueName', 'unique@cit.edu', 'correct', 'Buyer/Renter/Seller');
-  await screen.findByRole('heading', { name: 'Account ready' });
+  signup('UniqueName', 'unique@cit.edu', 'correct', 'Student');
+  await screen.findByRole('heading', { name: 'Verify your account' });
   cleanup();
   localStorage.removeItem('cit-marketplace-demo-account');
 
-  signup('AnotherName', 'UNIQUE@CIT.EDU', 'correct', 'Buyer/Renter/Seller');
+  signup('AnotherName', 'UNIQUE@CIT.EDU', 'correct', 'Student');
   expect(await screen.findByRole('alert')).toHaveTextContent('email already exists');
   cleanup();
-  signup('uniquename', 'different@cit.edu', 'correct', 'Admin');
+  signup('uniquename', 'different@cit.edu', 'correct', 'Faculty/Staff');
   expect(await screen.findByRole('alert')).toHaveTextContent('username is already taken');
   cleanup();
 
@@ -142,7 +139,7 @@ test('rejects duplicate emails and usernames, and login checks the saved passwor
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } });
   fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Email or password is incorrect');
-  await login(' UNIQUE@CIT.EDU ', 'correct', 'UniqueName', 'Buyer/Renter/Seller');
+  await login(' UNIQUE@CIT.EDU ', 'correct', 'UniqueName', 'Student');
 });
 
 test('new listings stay hidden while pending, appear live when approved, and persist after refresh', async () => {
@@ -182,6 +179,25 @@ test('new listings stay hidden while pending, appear live when approved, and per
   render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><BrowseListingsProbe /></MemoryRouter>);
   expect(await screen.findByText(/Approval test item one \| Original item description one/)).toBeInTheDocument();
   expect(within(screen.getByTestId('browse-listings')).queryByText(/Approval test item two/)).not.toBeInTheDocument();
+});
+
+test('accepted or completed sale transactions hide their listing from Browse', () => {
+  localStorage.clear();
+  const store = readStore();
+  const listing = store.listings[0];
+  listing.approval_status = 'approved';
+  listing.availability = 'active';
+  expect(getBrowseListings().some(item => item.id === listing.id)).toBe(true);
+
+  store.transactions.push({
+    id: 'sale-accepted-test',
+    type: 'sale',
+    status: 'accepted',
+    listing_id: listing.id,
+  });
+  writeStore(store);
+
+  expect(getBrowseListings().some(item => item.id === listing.id)).toBe(false);
 });
 
 test('Browse normalizes approved statuses and hides pending, rejected, and removed records', () => {

@@ -125,7 +125,11 @@ test('admin actions announce their result and can be found with the labeled sear
   });
   writeStore(store);
 
-  render(<Admin section="listings" />);
+  render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <AuthProvider><Admin section="listings" /></AuthProvider>
+    </MemoryRouter>
+  );
 
   expect(screen.getByRole('textbox', { name: 'Search pending listings' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Approve' }));

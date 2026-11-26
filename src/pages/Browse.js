@@ -17,6 +17,8 @@ export default function Browse() {
   const filters = useListingFilters(listings);
   const { setCategory, setType, setQuery } = filters;
   const [sortBy, setSortBy] = useState('recommended');
+  const [page, setPage] = useState(1);
+  const pageSize = 6;
 
   useEffect(() => {
     const category = searchParams.get('category');
@@ -28,9 +30,16 @@ export default function Browse() {
   }, [searchParams, setCategory, setQuery, setType]);
 
   const sortedListings = useMemo(() => {
-    if (sortBy !== 'price-low') return filters.filteredListings;
-    return [...filters.filteredListings].sort((first, second) => first.price - second.price);
+    const rows = [...filters.filteredListings];
+    if (sortBy === 'price-low') return rows.sort((a, b) => a.price - b.price);
+    if (sortBy === 'price-high') return rows.sort((a, b) => b.price - a.price);
+    if (sortBy === 'latest') return rows.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    if (sortBy === 'oldest') return rows.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+    return rows;
   }, [filters.filteredListings, sortBy]);
+  useEffect(() => setPage(1), [sortBy, filters.query, filters.category, filters.condition, filters.type, filters.minPrice, filters.maxPrice]);
+  const pageCount = Math.max(1, Math.ceil(sortedListings.length / pageSize));
+  const visibleListings = sortedListings.slice((page - 1) * pageSize, page * pageSize);
   const invalidPriceRange = filters.minPrice !== '' && filters.maxPrice !== ''
     && Number(filters.minPrice) > Number(filters.maxPrice);
 
@@ -87,9 +96,9 @@ export default function Browse() {
               </aside>
 
               <div className="browse-results">
-                <div className="results-heading browse-results-heading"><p role="status" aria-live="polite" aria-atomic="true">{loading ? 'Loading listings…' : error ? 'Listings are unavailable.' : invalidPriceRange ? 'Check your price range.' : `${sortedListings.length} ${sortedListings.length === 1 ? 'listing' : 'listings'} found`}</p><label htmlFor="sort-listings">Sort by <select id="sort-listings" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="recommended">Recommended</option><option value="price-low">Price: low to high</option></select></label></div>
+                <div className="results-heading browse-results-heading"><p role="status" aria-live="polite" aria-atomic="true">{loading ? 'Loading listings…' : error ? 'Listings are unavailable.' : invalidPriceRange ? 'Check your price range.' : `${sortedListings.length} ${sortedListings.length === 1 ? 'listing' : 'listings'} found`}</p><label htmlFor="sort-listings">Sort by <select id="sort-listings" value={sortBy} onChange={(event) => setSortBy(event.target.value)}><option value="recommended">Most relevant</option><option value="latest">Latest listings</option><option value="oldest">Oldest listings</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option></select></label></div>
                 {hasActiveFilters && <div className="active-filter-list" role="group" aria-label="Active filters"><span>Filters applied:</span>{activeFilters.map((filter) => <button key={filter.label} type="button" className="active-filter-chip" aria-label={`Remove ${filter.label} filter`} onClick={filter.clear}>{filter.label}<span aria-hidden="true">×</span></button>)}<button type="button" className="active-filter-clear" onClick={clearFilters}>Clear all</button></div>}
-                {error ? <div className="empty-state browse-empty"><h2>Listings couldn’t load</h2><p>{error}</p></div> : loading ? <p className="admin-empty">Loading approved listings…</p> : sortedListings.length ? <div className="listing-grid browse-listing-grid">{sortedListings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div> : <div className="empty-state browse-empty"><span className="browse-empty-icon" aria-hidden="true">⌕</span><h2>{invalidPriceRange ? 'Check your price range' : listings.length ? 'No listings match those filters' : 'No listings yet'}</h2><p>{invalidPriceRange ? 'Enter a maximum price that is at least your minimum price.' : listings.length ? 'Try changing your search or clearing a filter.' : 'Be the first to share something useful with the CIT community.'}</p>{hasActiveFilters && <button type="button" className="browse-clear-button" onClick={clearFilters}>Clear filters</button>}<Link className="browse-post-button" to="/sell">Post a listing <span aria-hidden="true">↗</span></Link></div>}
+                {error ? <div className="empty-state browse-empty"><h2>Listings couldn’t load</h2><p>{error}</p></div> : loading ? <p className="admin-empty">Loading approved listings…</p> : visibleListings.length ? <><div className="listing-grid browse-listing-grid">{visibleListings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}</div>{pageCount > 1 && <nav className="browse-pagination" aria-label="Listing pages">{Array.from({ length: pageCount }, (_, index) => index + 1).map(pageNumber => <button type="button" key={pageNumber} aria-current={pageNumber === page ? 'page' : undefined} onClick={() => setPage(pageNumber)}>{pageNumber}</button>)}</nav>}</> : <div className="empty-state browse-empty"><span className="browse-empty-icon" aria-hidden="true">⌕</span><h2>{invalidPriceRange ? 'Check your price range' : listings.length ? 'No listings match those filters' : 'No listings yet'}</h2><p>{invalidPriceRange ? 'Enter a maximum price that is at least your minimum price.' : listings.length ? 'Try changing your search or clearing a filter.' : 'Be the first to share something useful with the CIT community.'}</p>{hasActiveFilters && <button type="button" className="browse-clear-button" onClick={clearFilters}>Clear filters</button>}<Link className="browse-post-button" to="/sell">Post a listing <span aria-hidden="true">↗</span></Link></div>}
               </div>
             </div>
           </section>

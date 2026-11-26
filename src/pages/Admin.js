@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { isListingPending, readStore, updateStore, updateListingApproval } from '../data/localStore';
 import formatCurrency from '../utils/formatCurrency';
 import Icon from '../components/admin/Icon';
+import { useAuth } from '../auth/AuthContext';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 const tabs = [
   { id: 'listings', label: 'Pending Listings' },
@@ -15,6 +17,7 @@ function Metric({ label, value, icon }) {
 }
 
 export default function Admin({ section }) {
+  const { profile } = useAuth();
   const [live, setLive] = useState({ listings: [], accounts: [], reports: [], logs: [] });
   const [search, setSearch] = useState('');
   const [sortNewest, setSortNewest] = useState(true);
@@ -22,12 +25,33 @@ export default function Admin({ section }) {
   const [error, setError] = useState('');
   const current = tabs.find(item => item.id === section);
 
-  const load = () => {
+  const load = async () => {
+    if (isSupabaseConfigured) {
+      const [listings, accounts, reports, logs] = await Promise.all([
+        supabase.from('listings').select('*, categories(name), profiles(full_name)').eq('approval_status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('profiles').select('*').or('verification_status.eq.verified_pending_admin,verification_status.eq.pending').neq('role', 'admin').order('created_at', { ascending: false }),
+        supabase.from('reports').select('*').in('status', ['open', 'pending', 'under_review']).order('created_at', { ascending: false }),
+        supabase.from('moderation_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }),
+      ]);
+      setLive({
+        listings: (listings.data || []).map(row => ({ ...row, category: row.categories?.name || 'Other', owner: row.profiles?.full_name || 'CIT member' })),
+        accounts: (accounts.data || []).map(row => ({ ...row, full_name: row.full_name || row.username || row.email })),
+        reports: reports.data || [],
+        logs: (logs.data || []).map(row => ({ ...row, admin: row.profiles || null })),
+      });
+      if (listings.error || accounts.error || reports.error || logs.error) {
+        setError([listings.error, accounts.error, reports.error, logs.error].find(Boolean)?.message || 'Could not load moderation records.');
+      }
+      return;
+    }
     const store = readStore();
     setLive({
       listings: store.listings.filter(isListingPending),
-      accounts: store.accounts.filter(item => !item.is_verified),
-      reports: store.reports.filter(item => item.status === 'open'),
+      accounts: store.accounts.filter(item =>
+        item.role !== 'admin' &&
+        (item.verification_status === 'verified_pending_admin' ||
+          (!item.is_verified && item.verification_status !== 'rejected'))),
+      reports: store.reports.filter(item => ['open', 'pending', 'under_review'].includes(item.status)),
       logs: store.logs,
     });
   };
@@ -51,6 +75,38 @@ export default function Admin({ section }) {
   const decide = (row, action) => {
     setError('');
     setNotice('');
+    if (isSupabaseConfigured) {
+      (async () => {
+        try {
+          if (section === 'listings') {
+            if (action === 'delete') {
+              const { error } = await supabase.from('listings').delete().eq('id', row.id);
+              if (error) throw error;
+            } else {
+              const { error } = await supabase.from('listings').update({ approval_status: action === 'approve' ? 'approved' : 'rejected' }).eq('id', row.id);
+              if (error) throw error;
+            }
+          } else if (section === 'accounts') {
+            const values = action === 'verify'
+              ? { is_verified: true, verification_status: 'approved', account_status: 'active' }
+              : { is_verified: false, verification_status: 'rejected', account_status: 'inactive' };
+            const { error } = await supabase.from('profiles').update(values).eq('id', row.id);
+            if (error) throw error;
+            await supabase.from('notifications').insert({ user_id: row.id, type: `account_${action === 'verify' ? 'verified' : 'rejected'}`, message: action === 'verify' ? 'The administrator approved your marketplace account.' : 'The administrator rejected your account verification.' });
+          } else if (section === 'reports') {
+            const { error } = await supabase.from('reports').update({ status: action }).eq('id', row.id);
+            if (error) throw error;
+          }
+          await supabase.from('moderation_logs').insert({ action: `${section}_${action}`, target_type: section, target_id: row.id, administrator_id: profile?.id, reason: action });
+          await load();
+          const target = row.title || row.full_name || 'Report';
+          setNotice(`${target}: ${action === 'delete' ? 'deleted' : action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action === 'verify' ? 'verified' : action === 'decline' ? 'declined' : action}.`);
+        } catch (saveError) {
+          setError(`Could not save this action. ${saveError.message || 'Please try again.'}`);
+        }
+      })();
+      return;
+    }
     try {
       updateStore(store => {
         const now = new Date().toISOString();
@@ -61,7 +117,20 @@ export default function Admin({ section }) {
           const account = store.accounts.find(item => item.id === row.id);
           if (!account) throw new Error('The account could not be found.');
           account.is_verified = action === 'verify';
+          account.verification_status = action === 'verify' ? 'approved' : 'rejected';
           if (action === 'decline') account.account_status = 'inactive';
+          store.notifications.unshift({
+            id: `log-${Date.now()}-account-notice`,
+            user_id: account.id,
+            title: action === 'verify' ? 'Account verified' : 'Account verification rejected',
+            message: action === 'verify'
+              ? 'The administrator approved your marketplace account.'
+              : 'The administrator rejected your account verification.',
+            type: `account_${action === 'verify' ? 'verified' : 'rejected'}`,
+            related_id: account.id,
+            is_read: false,
+            created_at: now,
+          });
         } else {
           const report = store.reports.find(item => item.id === row.id);
           if (!report) throw new Error('The report could not be found.');
@@ -72,8 +141,10 @@ export default function Admin({ section }) {
           action: `${section}_${action}`,
           target_type: section,
           target_id: row.id,
+          administrator_id: profile?.id,
+          reason: action,
           created_at: now,
-          admin: { full_name: 'CIT Administrator' },
+          admin: { id: profile?.id, full_name: profile?.full_name || 'Administrator' },
         });
       });
       load();

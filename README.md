@@ -1,6 +1,6 @@
 # CIT Marketplace
 
-A frontend-only React marketplace demo. Listings, accounts, messages, notifications, rentals, reports, and moderation actions are saved in the browser's `localStorage`; no server or external service is required.
+CIT Marketplace uses Supabase for authentication and persistent marketplace data when `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY` are configured. It falls back to browser `localStorage` for development without Supabase.
 
 ## Run locally
 
@@ -10,6 +10,13 @@ npm start
 ```
 
 Create React App opens the app at `http://localhost:3000`. To make a production build, run `npm run build`.
+
+## Supabase setup
+
+1. Copy `.env.example` to `.env.local` and set the project URL and publishable (anon) key.
+2. Run the SQL migration in `supabase/migrations/20261126000000_marketplace_full_database.sql` in the Supabase SQL Editor.
+3. Set email confirmation and site redirect URLs for the project's authentication settings.
+4. Ensure the `listing-images` Storage bucket is public, or update it using the migration.
 
 ## Demo accounts
 

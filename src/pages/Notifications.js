@@ -1,23 +1,43 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { readStore, updateStore } from '../data/localStore';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 export default function Notifications() {
   const { user } = useAuth();
   const [rows, setRows] = useState([]);
   const [notice, setNotice] = useState('');
-  const load = useCallback(() => setRows(readStore().notifications.filter(item => item.user_id === user.id)), [user.id]);
+  const load = useCallback(async () => {
+    if (isSupabaseConfigured) {
+      const { data, error: queryError } = await supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (queryError) { setNotice(queryError.message); return; }
+      setRows(data || []);
+      return;
+    }
+    setRows(readStore().notifications.filter(item => item.user_id === user.id));
+  }, [user.id]);
 
   useEffect(() => {
     load();
     window.addEventListener('marketplace-store-change', load);
-    return () => window.removeEventListener('marketplace-store-change', load);
-  }, [load]);
+    if (!isSupabaseConfigured) return () => window.removeEventListener('marketplace-store-change', load);
+    const channel = supabase.channel(`notifications-${user.id}`).on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, load).subscribe();
+    return () => { window.removeEventListener('marketplace-store-change', load); supabase.removeChannel(channel); };
+  }, [load, user.id]);
 
   const mark = id => {
-    updateStore(store => store.notifications.forEach(item => {
-      if (item.user_id === user.id && (!id || item.id === id)) item.is_read = true;
-    }));
+    if (isSupabaseConfigured) {
+      (async () => {
+        let query = supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id);
+        if (id) query = query.eq('id', id);
+        const { error: updateError } = await query;
+        if (updateError) { setNotice(updateError.message); return; }
+        setNotice(id ? 'Notification marked as read.' : 'All notifications marked as read.');
+        await load();
+      })();
+      return;
+    }
+    updateStore(store => store.notifications.forEach(item => { if (item.user_id === user.id && (!id || item.id === id)) item.is_read = true; }));
     setNotice(id ? 'Notification marked as read.' : 'All notifications marked as read.');
     load();
   };
