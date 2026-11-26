@@ -27,20 +27,24 @@ export default function Admin({ section }) {
 
   const load = async () => {
     if (isSupabaseConfigured) {
-      const [listings, accounts, reports, logs] = await Promise.all([
+      const [listings, accountResult, reports, logs] = await Promise.all([
         supabase.from('listings').select('*, categories(name), profiles(full_name)').eq('approval_status', 'pending').order('created_at', { ascending: false }),
-        supabase.from('profiles').select('*').or('verification_status.eq.verified_pending_admin,verification_status.eq.pending').neq('role', 'admin').order('created_at', { ascending: false }),
+        supabase.rpc('admin_list_profiles'),
         supabase.from('reports').select('*').in('status', ['open', 'pending', 'under_review']).order('created_at', { ascending: false }),
         supabase.from('moderation_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }),
       ]);
+      const accounts = (accountResult.data || []).filter(item =>
+        item.role !== 'admin' &&
+        (item.verification_status === 'verified_pending_admin' ||
+          (!item.is_verified && item.verification_status !== 'rejected')));
       setLive({
         listings: (listings.data || []).map(row => ({ ...row, category: row.categories?.name || 'Other', owner: row.profiles?.full_name || 'CIT member' })),
-        accounts: (accounts.data || []).map(row => ({ ...row, full_name: row.full_name || row.username || row.email })),
+        accounts: accounts.map(row => ({ ...row, full_name: row.full_name || row.username || row.email })),
         reports: reports.data || [],
         logs: (logs.data || []).map(row => ({ ...row, admin: row.profiles || null })),
       });
-      if (listings.error || accounts.error || reports.error || logs.error) {
-        setError([listings.error, accounts.error, reports.error, logs.error].find(Boolean)?.message || 'Could not load moderation records.');
+      if (listings.error || accountResult.error || reports.error || logs.error) {
+        setError([listings.error, accountResult.error, reports.error, logs.error].find(Boolean)?.message || 'Could not load moderation records.');
       }
       return;
     }
@@ -87,17 +91,24 @@ export default function Admin({ section }) {
               if (error) throw error;
             }
           } else if (section === 'accounts') {
-            const values = action === 'verify'
-              ? { is_verified: true, verification_status: 'approved', account_status: 'active' }
-              : { is_verified: false, verification_status: 'rejected', account_status: 'inactive' };
-            const { error } = await supabase.from('profiles').update(values).eq('id', row.id);
+            const { error } = await supabase.rpc('admin_set_profile_verification', {
+              target_user_id: row.id,
+              approve: action === 'verify',
+            });
             if (error) throw error;
-            await supabase.from('notifications').insert({ user_id: row.id, type: `account_${action === 'verify' ? 'verified' : 'rejected'}`, message: action === 'verify' ? 'The administrator approved your marketplace account.' : 'The administrator rejected your account verification.' });
           } else if (section === 'reports') {
             const { error } = await supabase.from('reports').update({ status: action }).eq('id', row.id);
             if (error) throw error;
           }
-          await supabase.from('moderation_logs').insert({ action: `${section}_${action}`, target_type: section, target_id: row.id, administrator_id: profile?.id, reason: action });
+          if (section !== 'accounts') {
+            const { error } = await supabase.rpc('record_admin_moderation_action', {
+              p_action: `${section}_${action}`,
+              p_target_type: section,
+              p_target_id: row.id,
+              p_reason: action,
+            });
+            if (error) throw error;
+          }
           await load();
           const target = row.title || row.full_name || 'Report';
           setNotice(`${target}: ${action === 'delete' ? 'deleted' : action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action === 'verify' ? 'verified' : action === 'decline' ? 'declined' : action}.`);

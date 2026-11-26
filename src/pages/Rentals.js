@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { logNotification, readStore, updateStore } from '../data/localStore';
-import { createMarketplaceNotification, createMarketplaceTransaction, loadMarketplaceTransactions, updateMarketplaceTransaction } from '../data/marketplaceApi';
+import { createMarketplaceNotification, createMarketplaceTransaction, findMarketplaceMemberByEmail, loadMarketplaceTransactions, updateMarketplaceTransaction } from '../data/marketplaceApi';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import formatCurrency from '../utils/formatCurrency';
 
@@ -67,8 +67,15 @@ export default function Rentals() {
     const listing = owned.find(item => item.id === form.listing);
     if (!listing) { setError('Choose one of your active rental listings.'); return; }
     if (isSupabaseConfigured) {
-      const { data: renter, error: profileError } = await supabase.from('profiles').select('id,full_name,email,is_verified').eq('email', form.renterEmail.trim().toLowerCase()).maybeSingle();
-      if (profileError || !renter) { setInvalidField('renter-email'); setError(profileError?.message || 'That email does not match a marketplace account.'); return; }
+      let renter;
+      try {
+        renter = await findMarketplaceMemberByEmail(form.renterEmail);
+      } catch (profileError) {
+        setInvalidField('renter-email');
+        setError(profileError.message || 'Could not look up that marketplace account.');
+        return;
+      }
+      if (!renter) { setInvalidField('renter-email'); setError('That email does not match a marketplace account.'); return; }
       if (renter.id === user.id) { setInvalidField('renter-email'); setError('Choose another account as the renter.'); return; }
       if (!renter.is_verified) { setInvalidField('renter-email'); setError('The renter must complete account verification.'); return; }
       try {

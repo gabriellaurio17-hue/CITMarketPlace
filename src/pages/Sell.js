@@ -43,6 +43,7 @@ export default function Sell() {
   };
   const submit = async event => {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setError('');
     setSuccess(false);
     if (!user || !profile?.is_verified) { setError('Verify your account before submitting listings.'); return; }
@@ -60,7 +61,7 @@ export default function Sell() {
       else addListing(payload);
       if (isSupabaseConfigured) await refreshListings();
       setSuccess(true);
-      if (!editId) { setForm(initialForm); setPhotos([]); event.currentTarget.reset(); }
+      if (!editId) { setForm(initialForm); setPhotos([]); formElement.reset(); }
     } catch (saveError) {
       setError(`Could not save your listing. ${saveError.message || 'Please try again.'}`);
     }

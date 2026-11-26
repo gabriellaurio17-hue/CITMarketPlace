@@ -96,6 +96,22 @@ test('listing photos have descriptive alternative text', () => {
   expect(screen.getByRole('img', { name: 'Physics textbook' })).toBeInTheDocument();
 });
 
+test('listing cards show the seller rating and review count', () => {
+  render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><ListingCard listing={{
+    id: 'listing-rated',
+    title: 'Rated listing',
+    type: 'sale',
+    category: 'Other',
+    condition: 'Good',
+    price: 100,
+    owner: 'CIT member',
+    sellerRating: '4.5',
+    sellerReviewCount: 2,
+  }} /></MemoryRouter>);
+
+  expect(screen.getByText('4.5 ★ · 2 reviews')).toBeInTheDocument();
+});
+
 test('rental details show the deposit and estimated meetup amount', () => {
   render(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/items/digital-multimeter']}>

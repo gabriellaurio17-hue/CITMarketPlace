@@ -2,20 +2,21 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { readStore, updateStore } from '../data/localStore';
-import { createMarketplaceNotification, createMarketplaceReview, createMarketplaceTransaction, loadMarketplaceTransactions, updateMarketplaceTransaction } from '../data/marketplaceApi';
+import { createMarketplaceNotification, createMarketplaceReview, createMarketplaceTransaction, findMarketplaceMemberByEmail, loadMarketplaceTransactions, updateMarketplaceTransaction } from '../data/marketplaceApi';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import formatCurrency from '../utils/formatCurrency';
 export default function Dashboard({ embedded = false }) {
-  const { user, profile } = useAuth(); const [data, setData] = useState({ listings: [], transactions: [], reviews: [] }); const [saleForm, setSaleForm] = useState({ listing: '', buyerEmail: '' }); const [saleError, setSaleError] = useState(''); const [feedback, setFeedback] = useState(''); const [reviewText, setReviewText] = useState(''); const [reviewRating, setReviewRating] = useState('5');
+  const { user, profile } = useAuth(); const [data, setData] = useState({ listings: [], transactions: [], reviews: [] }); const [saleForm, setSaleForm] = useState({ listing: '', buyerEmail: '' }); const [saleError, setSaleError] = useState(''); const [dataError, setDataError] = useState(''); const [feedback, setFeedback] = useState(''); const [reviewText, setReviewText] = useState(''); const [reviewRating, setReviewRating] = useState('5');
   const load = useCallback(async () => {
     if (isSupabaseConfigured) {
+      setDataError('');
       const [listingResult, transactions, reviewsResult] = await Promise.all([
         supabase.from('listings').select('*, categories(name), profiles(full_name)').eq('owner_id', user.id).order('created_at', { ascending: false }),
         loadMarketplaceTransactions(user.id),
         supabase.from('reviews').select('*').or(`seller_id.eq.${user.id},reviewer_id.eq.${user.id}`),
       ]);
-      if (listingResult.error) { setSaleError(listingResult.error.message); return; }
-      if (reviewsResult.error) { setSaleError(reviewsResult.error.message); return; }
+      if (listingResult.error) { setDataError(listingResult.error.message); return; }
+      if (reviewsResult.error) { setDataError(reviewsResult.error.message); return; }
       setData({
         listings: (listingResult.data || []).map(row => ({ ...row, category: row.categories?.name || 'Other', type: row.listing_type, owner: row.profiles?.full_name || 'CIT member' })),
         transactions,
@@ -24,9 +25,22 @@ export default function Dashboard({ embedded = false }) {
       return;
     }
     const s = readStore();
+    setDataError('');
     setData({ listings: s.listings.filter(x => x.owner_id === user.id), transactions: s.transactions.filter(x => x.buyer_id === user.id || x.seller_id === user.id), reviews: s.reviews });
   }, [user.id]);
-  useEffect(() => { load(); window.addEventListener('marketplace-store-change', load); return () => window.removeEventListener('marketplace-store-change', load); }, [load]);
+  useEffect(() => {
+    load();
+    window.addEventListener('marketplace-store-change', load);
+    const channel = isSupabaseConfigured && supabase
+      ? supabase.channel(`seller-reviews-${user.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews', filter: `seller_id=eq.${user.id}` }, load)
+        .subscribe()
+      : null;
+    return () => {
+      window.removeEventListener('marketplace-store-change', load);
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [load, user.id]);
   const setAvailability = async listing => {
     const next = listing.availability === 'active' ? 'unavailable' : 'active';
     if (isSupabaseConfigured) {
@@ -47,8 +61,14 @@ export default function Dashboard({ embedded = false }) {
     event.preventDefault(); setSaleError(''); setFeedback('');
     const listing = data.listings.find(x => x.id === saleForm.listing && x.owner_id === user.id);
     if (isSupabaseConfigured) {
-      const { data: buyer, error } = await supabase.from('profiles').select('id,email,is_verified').eq('email', saleForm.buyerEmail.trim().toLowerCase()).maybeSingle();
-      if (error || !buyer || !listing) { setSaleError(error?.message || 'Choose a listing and enter a CIT member email that can be found.'); return; }
+      let buyer;
+      try {
+        buyer = await findMarketplaceMemberByEmail(saleForm.buyerEmail);
+      } catch (error) {
+        setSaleError(error.message || 'Could not look up that CIT member.');
+        return;
+      }
+      if (!buyer || !listing) { setSaleError('Choose a listing and enter a CIT member email that can be found.'); return; }
       if (buyer.id === user.id) { setSaleError('Choose another account as the buyer.'); return; }
       if (!buyer.is_verified) { setSaleError('The buyer must complete account verification.'); return; }
       if (listing.availability !== 'active') { setSaleError('This listing is unavailable for a new sale.'); return; }
@@ -117,7 +137,7 @@ export default function Dashboard({ embedded = false }) {
     setFeedback(`Sale marked ${status}.`);
     load();
   };
-  const submitMutualReview = tx => {
+  const submitSellerReview = tx => {
     if (!reviewText.trim()) return;
     const exists = data.reviews.some(review => review.transaction_id === tx.id && review.reviewer_id === user.id);
     if (exists) return;
@@ -131,12 +151,11 @@ export default function Dashboard({ embedded = false }) {
       })();
       return;
     }
-    const reviewedUserId = tx.seller_id === user.id ? (tx.buyer_id) : tx.seller_id;
     updateStore(s => s.reviews.push({
       id: `review-${Date.now()}`,
       transaction_id: tx.id,
       reviewer_id: user.id,
-      reviewed_user_id: reviewedUserId,
+      reviewed_user_id: tx.seller_id,
       seller_id: tx.seller_id,
       rating: Number(reviewRating),
       comment: reviewText.trim(),
@@ -151,10 +170,11 @@ export default function Dashboard({ embedded = false }) {
   return <div className={`content-width standard-page dashboard-page${embedded ? ' faculty-dashboard-details' : ''}`} role={embedded ? undefined : 'main'}>
     <div className="page-heading dashboard-heading"><div><span className="eyebrow">YOUR CAMPUS CORNER</span><h1>Good to see you,<br/>{name.split(' ')[0]}<span>.</span></h1></div><Link className="button" to="/sell">＋ New listing</Link></div>
     {feedback && <p className="admin-notice" role="status">{feedback}</p>}
+    {dataError && <p className="admin-alert" role="alert">Could not load your dashboard data: {dataError}</p>}
     <section className="profile-card"><span className="avatar profile-avatar">{name.split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase()}</span><div className="profile-info"><h2>{name}</h2><p>{user.email}</p><span className="verified-badge">✓ CIT verified · {profile?.role === 'admin' ? 'Admin' : `${profile?.classification} account`}</span></div><div className="account-state"><i/> ACCOUNT STATUS<strong>active</strong></div><Link to="/notifications" className="profile-notifications">View notifications ↗</Link></section>
-    <section className="stats-grid"><article className="stat-card"><span>YOUR LISTINGS</span><strong>{listings.length}</strong><small>{listings.filter(x=>x.approval_status==='approved').length} approved · {listings.filter(x=>x.approval_status==='pending').length} pending</small></article><article className="stat-card"><span>ACTIVE RENTALS</span><strong>{transactions.filter(x=>x.type==='rental'&&x.status==='ongoing').length}</strong><small>Rental transactions in progress</small></article><article className="stat-card"><span>SELLER RATING</span><strong>{rating || '—'} {rating && <i>★</i>}</strong><small>Based on completed-transaction reviews</small></article></section>
+    <section className="stats-grid"><article className="stat-card"><span>YOUR LISTINGS</span><strong>{listings.length}</strong><small>{listings.filter(x=>x.approval_status==='approved').length} approved · {listings.filter(x=>x.approval_status==='pending').length} pending</small></article><article className="stat-card"><span>ACTIVE RENTALS</span><strong>{transactions.filter(x=>x.type==='rental'&&x.status==='ongoing').length}</strong><small>Rental transactions in progress</small></article><article className="stat-card"><span>SELLER RATING</span><strong>{rating || '—'} {rating && <i>★</i>}</strong><small>{ratingRows.length ? `Based on ${ratingRows.length} completed-transaction ${ratingRows.length === 1 ? 'review' : 'reviews'}` : 'No completed-transaction reviews yet'}</small></article></section>
     <section className="dashboard-section"><div className="section-heading small-heading"><div><span className="eyebrow">WHAT YOU'VE PUT OUT THERE</span><h2>My listings</h2></div><Link className="text-link" to="/sell">Add a listing ↗</Link></div><div className="dashboard-table table-card"><div className="table-scroll"><table><thead><tr><th>LISTING</th><th>CATEGORY</th><th>PRICE</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>{listings.map(x=><tr key={x.id}><td data-label="Listing"><strong>{x.title}</strong><small>{x.listing_type==='rent'?'For rent':x.listing_type==='both'?'Sale or rent':'For sale'}</small></td><td>{x.category || x.categories?.name || '—'}</td><td>{formatCurrency(x.price)}{x.listing_type==='rent'?' / day':''}</td><td><span className={`status-pill status-${x.approval_status}`}>{x.approval_status} · {x.availability}</span></td><td><div className="listing-row-actions"><Link to={`/sell?edit=${x.id}`}>Edit</Link><button onClick={()=>setAvailability(x)}>{x.availability==='active'?'Mark unavailable':'Mark available'}</button><button onClick={()=>deleteListing(x)}>Delete</button></div></td></tr>)}{!listings.length&&<tr><td colSpan="5">You haven’t listed anything yet. <Link to="/sell">Create your first listing</Link>.</td></tr>}</tbody></table></div></div></section>
     {profile?.is_verified && <section className="form-card dashboard-sale-form"><div className="form-section-heading"><span className="step-number">＋</span><div><h2>Record a sale</h2><p>Record an offline handoff to a member.</p></div></div>{saleError&&<p className="admin-alert" role="alert">{saleError}</p>}<form className="auth-form" onSubmit={recordSale}><label className="field-label" htmlFor="sale-listing">Your approved sale listing</label><select id="sale-listing" value={saleForm.listing} onChange={e=>setSaleForm({...saleForm,listing:e.target.value})} required><option value="">Choose a listing</option>{listings.filter(x=>['sale','both'].includes(x.listing_type)&&x.approval_status==='approved'&&x.availability==='active').map(x=><option key={x.id} value={x.id}>{x.title}</option>)}</select><label className="field-label" htmlFor="sale-buyer-email">Buyer’s @cit.edu email</label><input id="sale-buyer-email" type="email" value={saleForm.buyerEmail} onChange={e=>setSaleForm({...saleForm,buyerEmail:e.target.value})} required/><button className="button" type="submit">Record sale</button></form></section>}
-    <section className="dashboard-section"><div className="section-heading small-heading"><div><span className="eyebrow">THE GOOD STUFF, SETTLED OFFLINE</span><h2>Transaction history</h2></div></div><div className="transaction-list">{transactions.map(x=><article className="transaction-row" key={x.id}><span className="transaction-icon">↗</span><span className="transaction-name"><strong>{x.title || x.listings?.title || `${x.type} transaction`}</strong><small>{new Date(x.created_at).toLocaleDateString()} · {x.status}</small>{x.type==='sale'&&x.status==='pending'&&x.seller_id===user.id&&<span className="listing-row-actions"><button className="button button-small" onClick={()=>updateSaleStatus(x.id,'accepted')}>Accept</button><button className="text-button" onClick={()=>updateSaleStatus(x.id,'cancelled')}>Reject</button></span>}{x.type==='sale'&&['accepted','ongoing'].includes(x.status)&&x.seller_id===user.id&&<button className="button button-small" onClick={()=>updateSaleStatus(x.id,'ongoing')}>Start sale</button>}{x.type==='sale'&&x.status==='ongoing'&&x.seller_id===user.id&&<button className="button button-small" onClick={()=>updateSaleStatus(x.id,'completed')}>Mark sale complete</button>}{x.status==='completed'&&!data.reviews.some(r=>r.transaction_id===x.id&&r.reviewer_id===user.id)&&<div className="review-inline"><label>Rate the other participant <select aria-label="Rate transaction participant" value={reviewRating} onChange={e=>setReviewRating(e.target.value)}><option value="5">5 stars</option><option value="4">4 stars</option><option value="3">3 stars</option><option value="2">2 stars</option><option value="1">1 star</option></select></label><textarea aria-label="Write a transaction review" placeholder="Share a few words about your experience" value={reviewText} onChange={e=>setReviewText(e.target.value)}/><button className="button button-small" onClick={()=>submitMutualReview(x)}>Submit review</button></div>}{data.reviews.some(r=>r.transaction_id===x.id&&r.reviewer_id===user.id)&&<small>Review submitted</small>}</span><strong>{formatCurrency(x.amount || x.listings?.price || x.deposit_amount || 0)}</strong></article>)}{!transactions.length&&<p className="admin-empty">Transactions will appear here after you arrange a sale or rental through the marketplace.</p>}</div></section>
+    <section className="dashboard-section"><div className="section-heading small-heading"><div><span className="eyebrow">THE GOOD STUFF, SETTLED OFFLINE</span><h2>Transaction history</h2></div></div><div className="transaction-list">{transactions.map(x=><article className="transaction-row" key={x.id}><span className="transaction-icon">↗</span><span className="transaction-name"><strong>{x.title || x.listings?.title || `${x.type} transaction`}</strong><small>{new Date(x.created_at).toLocaleDateString()} · {x.status}</small>{x.type==='sale'&&x.status==='pending'&&x.seller_id===user.id&&<span className="listing-row-actions"><button className="button button-small" onClick={()=>updateSaleStatus(x.id,'accepted')}>Accept</button><button className="text-button" onClick={()=>updateSaleStatus(x.id,'cancelled')}>Reject</button></span>}{x.type==='sale'&&['accepted','ongoing'].includes(x.status)&&x.seller_id===user.id&&<button className="button button-small" onClick={()=>updateSaleStatus(x.id,'completed')}>Mark sale complete</button>}{x.status==='completed'&&x.buyer_id===user.id&&!data.reviews.some(r=>r.transaction_id===x.id&&r.reviewer_id===user.id)&&<div className="review-inline"><label>Rate the seller <select aria-label="Rate seller" value={reviewRating} onChange={e=>setReviewRating(e.target.value)}><option value="5">5 stars</option><option value="4">4 stars</option><option value="3">3 stars</option><option value="2">2 stars</option><option value="1">1 star</option></select></label><textarea aria-label="Write a seller review" placeholder="Share a few words about your experience" value={reviewText} onChange={e=>setReviewText(e.target.value)}/><button className="button button-small" onClick={()=>submitSellerReview(x)}>Submit review</button></div>}{data.reviews.some(r=>r.transaction_id===x.id&&r.reviewer_id===user.id)&&<small>Review submitted</small>}</span><strong>{formatCurrency(x.amount || x.listings?.price || x.deposit_amount || 0)}</strong></article>)}{!transactions.length&&<p className="admin-empty">Transactions will appear here after you arrange a sale or rental through the marketplace.</p>}</div></section>
   </div>;
 }

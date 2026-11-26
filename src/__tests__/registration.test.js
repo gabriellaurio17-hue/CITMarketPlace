@@ -24,7 +24,7 @@ function AccountStatus() {
 
 function BrowseListingsProbe() {
   const { listings } = useMarketplaceListings();
-  return <ul data-testid="browse-listings">{listings.map(listing => <li key={listing.id}>{listing.title} | {listing.description} | {listing.price} | {listing.category} | {listing.owner}</li>)}</ul>;
+  return <ul data-testid="browse-listings">{listings.map(listing => <li key={listing.id}>{listing.title} | {listing.description} | {listing.price} | {listing.category} | {listing.owner} | {listing.sellerRating || 'unrated'} | {listing.sellerReviewCount}</li>)}</ul>;
 }
 
 function signup(username, email, password, classification = 'Student') {
@@ -198,6 +198,38 @@ test('accepted or completed sale transactions hide their listing from Browse', (
   writeStore(store);
 
   expect(getBrowseListings().some(item => item.id === listing.id)).toBe(false);
+});
+
+test('marketplace listings aggregate seller reviews for shoppers', async () => {
+  localStorage.clear();
+  const store = readStore();
+  const listing = store.listings.find(item => item.approval_status === 'approved');
+  store.reviews.push(
+    { id: 'seller-review-one', seller_id: listing.owner_id, rating: 5 },
+    { id: 'seller-review-two', seller_id: listing.owner_id, rating: 4 },
+  );
+  writeStore(store);
+
+  render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><BrowseListingsProbe /></MemoryRouter>);
+
+  expect(await screen.findByText((content, element) => element.tagName === 'LI' && content.startsWith(`${listing.title} |`) && content.endsWith('| 4.5 | 2'))).toBeInTheDocument();
+});
+
+test('seller dashboard shows its review average and count', async () => {
+  localStorage.clear();
+  const store = readStore();
+  const listing = store.listings[0];
+  store.reviews.push(
+    { id: 'dashboard-review-one', seller_id: listing.owner_id, rating: 5 },
+    { id: 'dashboard-review-two', seller_id: listing.owner_id, rating: 4 },
+  );
+  writeStore(store);
+  localStorage.setItem('cit-marketplace-demo-account', listing.owner_id);
+
+  render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><AuthProvider><Routes><Route path="/" element={<RequireAuth><DashboardEntry /></RequireAuth>} /></Routes></AuthProvider></MemoryRouter>);
+
+  expect(await screen.findByText((content, element) => element.tagName === 'STRONG' && content.startsWith('4.5'))).toBeInTheDocument();
+  expect(screen.getByText('Based on 2 completed-transaction reviews')).toBeInTheDocument();
 });
 
 test('Browse normalizes approved statuses and hides pending, rejected, and removed records', () => {

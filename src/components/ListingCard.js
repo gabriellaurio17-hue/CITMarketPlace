@@ -20,6 +20,13 @@ function ListingCard({ listing }) {
           {formatCurrency(listing.price)}{listing.type === 'rent' ? <span> / day</span> : null}
         </p>
         <div className="listing-card-byline"><span>Posted by {listing.owner}</span>{postedDate && <time dateTime={listing.created_at}>{postedDate}</time>}</div>
+        <p className="listing-card-rating" title={listing.sellerRatingError || undefined}>
+          {listing.sellerRatingError
+            ? 'Seller rating unavailable'
+            : listing.sellerReviewCount
+              ? `${listing.sellerRating} ★ · ${listing.sellerReviewCount} ${listing.sellerReviewCount === 1 ? 'review' : 'reviews'}`
+              : 'No seller ratings yet'}
+        </p>
       </div>
     </Link>
   );

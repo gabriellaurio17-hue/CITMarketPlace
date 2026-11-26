@@ -22,6 +22,26 @@ function mapListing(row) {
   };
 }
 
+function addSellerRatings(listings, reviews, ratingError = '') {
+  const ratingsBySeller = new Map();
+  reviews.forEach(review => {
+    const summary = ratingsBySeller.get(review.seller_id) || { total: 0, count: 0 };
+    summary.total += Number(review.rating);
+    summary.count += 1;
+    ratingsBySeller.set(review.seller_id, summary);
+  });
+
+  return listings.map(listing => {
+    const summary = ratingsBySeller.get(listing.owner_id);
+    return {
+      ...listing,
+      sellerRating: summary ? (summary.total / summary.count).toFixed(1) : null,
+      sellerReviewCount: summary?.count || 0,
+      sellerRatingError: ratingError,
+    };
+  });
+}
+
 export default function useMarketplaceListings({ visibleOnly = true } = {}) {
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +51,9 @@ export default function useMarketplaceListings({ visibleOnly = true } = {}) {
     setLoading(true);
     setError('');
     if (!isSupabaseConfigured || !supabase) {
-      setListings(visibleOnly ? getBrowseListings() : readStore().listings);
+      const store = readStore();
+      const listings = visibleOnly ? getBrowseListings() : store.listings;
+      setListings(addSellerRatings(listings, store.reviews || []));
       setLoading(false);
       return;
     }
@@ -43,7 +65,19 @@ export default function useMarketplaceListings({ visibleOnly = true } = {}) {
       setError(queryError.message);
       setListings([]);
     } else {
-      setListings((data || []).map(mapListing));
+      const rows = data || [];
+      const ownerIds = [...new Set(rows.map(row => row.owner_id).filter(Boolean))];
+      let reviews = [];
+      let ratingError = '';
+      if (ownerIds.length) {
+        const { data: reviewRows, error: reviewError } = await supabase
+          .from('reviews')
+          .select('seller_id,rating')
+          .in('seller_id', ownerIds);
+        if (reviewError) ratingError = reviewError.message;
+        else reviews = reviewRows || [];
+      }
+      setListings(addSellerRatings(rows.map(mapListing), reviews, ratingError));
     }
     setLoading(false);
   }, [visibleOnly]);

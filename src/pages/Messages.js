@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { readStore, updateStore } from '../data/localStore';
+import { createMarketplaceNotification } from '../data/marketplaceApi';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 function LocalMessages() {
@@ -58,7 +59,7 @@ function LocalMessages() {
 }
 
 function RemoteMessages() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [params] = useSearchParams();
   const [conversations, setConversations] = useState([]);
   const [profiles, setProfiles] = useState({});
@@ -84,14 +85,39 @@ function RemoteMessages() {
     if (listingId && sellerId && sellerId !== user.id) {
       let conversation = rows.find(row => row.listing_id === listingId && row.member_ids.includes(sellerId));
       if (!conversation) {
-        const { data: listing } = await supabase.from('listings').select('title').eq('id', listingId).single();
+        const { data: listing, error: listingError } = await supabase.from('listings').select('title,owner_id').eq('id', listingId).single();
+        if (listingError) { setError(listingError.message); return; }
+        if (listing.owner_id !== sellerId || listing.owner_id === user.id) {
+          setError('This listing owner could not be verified.');
+          return;
+        }
         const { data: created, error: createError } = await supabase
           .from('conversations')
-          .insert({ listing_id: listingId, title: listing?.title || 'Marketplace conversation', member_ids: [user.id, sellerId] })
+          .upsert({
+            listing_id: listingId,
+            buyer_id: user.id,
+            seller_id: listing.owner_id,
+            title: listing.title || 'Marketplace conversation',
+            member_ids: [user.id, listing.owner_id],
+          }, { onConflict: 'listing_id,buyer_id', ignoreDuplicates: true })
           .select('*, listings(title)')
-          .single();
-        if (createError) setError(createError.message);
-        else conversation = created;
+          .maybeSingle();
+        if (createError) { setError(createError.message); return; }
+        conversation = created;
+        if (!conversation) {
+          const { data: existing, error: existingError } = await supabase
+            .from('conversations')
+            .select('*, listings(title)')
+            .eq('listing_id', listingId)
+            .eq('buyer_id', user.id)
+            .maybeSingle();
+          if (existingError) { setError(existingError.message); return; }
+          if (!existing) {
+            setError('The conversation already exists but could not be loaded.');
+            return;
+          }
+          conversation = existing;
+        }
       }
       if (conversation) {
         setActiveId(conversation.id);
@@ -101,7 +127,8 @@ function RemoteMessages() {
 
     const ids = [...new Set(rows.flatMap(row => row.member_ids || []).concat(conversationIds(rows, listingId, sellerId)))];
     if (ids.length) {
-      const { data: profileRows } = await supabase.from('profiles').select('id,full_name,email').in('id', ids);
+      const { data: profileRows, error: profilesError } = await supabase.from('profiles').select('id,full_name').in('id', ids);
+      if (profilesError) { setError(profilesError.message); return; }
       setProfiles(Object.fromEntries((profileRows || []).map(row => [row.id, row])));
     }
   }, [activeId, params, user.id]);
@@ -129,8 +156,21 @@ function RemoteMessages() {
     if (!draft.trim() || !active) return;
     const { error: sendError } = await supabase.from('messages').insert({ conversation_id: active.id, sender_id: user.id, content: draft.trim(), read_by: [user.id] });
     if (sendError) { setError(sendError.message); return; }
-    await supabase.from('conversations').update({ latest_message: draft.trim(), updated_at: new Date().toISOString() }).eq('id', active.id);
+    const { error: conversationError } = await supabase.from('conversations').update({ latest_message: draft.trim(), updated_at: new Date().toISOString() }).eq('id', active.id);
+    let notificationError;
+    if (otherId) {
+      try {
+        await createMarketplaceNotification(otherId, 'new_message', `${profile?.full_name || 'A CIT member'} sent you a message about ${active.title || active.listings?.title || 'a listing'}.`);
+      } catch (saveError) {
+        notificationError = saveError;
+      }
+    }
     setDraft('');
+    if (conversationError || notificationError) {
+      setError(`Message sent, but ${conversationError ? 'the conversation preview could not be updated' : 'the recipient notification could not be sent'}. ${conversationError?.message || notificationError?.message || ''}`);
+    } else {
+      setError('');
+    }
   };
 
   return (

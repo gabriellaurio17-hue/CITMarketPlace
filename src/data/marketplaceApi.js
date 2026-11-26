@@ -144,10 +144,18 @@ export async function createMarketplaceTransaction(transaction) {
   return data;
 }
 
+export async function findMarketplaceMemberByEmail(email) {
+  const { data, error } = await supabase.rpc('find_marketplace_member_by_email', {
+    p_email: email.trim().toLowerCase(),
+  });
+  if (error) throw error;
+  return Array.isArray(data) ? data[0] || null : data || null;
+}
+
 export async function loadMarketplaceTransactions(userId, type) {
   let query = supabase
     .from('transactions')
-    .select('*, listings(title, price), renter:profiles!transactions_buyer_id_fkey(full_name,email)')
+    .select('*, listings(title, price), renter:profiles!transactions_buyer_id_fkey(full_name)')
     .or(`seller_id.eq.${userId},buyer_id.eq.${userId}`)
     .order('created_at', { ascending: false });
   if (type) query = query.eq('type', type);

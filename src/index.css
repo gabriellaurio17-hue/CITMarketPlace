@@ -234,6 +234,7 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea { border-colo
 .listing-card-byline { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; color: #625750; font-size: 9px; }
 .listing-card-byline > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .listing-card-byline time { flex: 0 0 auto; }
+.listing-card-rating { margin: 7px 0 0; color: #625750; font-size: 9px; }
 .selected-photo-list { margin: 10px 0 0; padding-left: 20px; color: #6B5B5E; font-size: 11px; }
 .selected-photo-list li + li { margin-top: 4px; }
 .how-section { position: relative; margin-bottom: 90px; padding: 58px; background-color: var(--sand); background-size: cover; background-position: center; text-align: center; }

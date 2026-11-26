@@ -28,24 +28,11 @@ function toProfile(row, authUser) {
 }
 
 async function loadProfile(authUser) {
-  const { data, error } = await supabase.from('profiles').select('*').eq('id', authUser.id).maybeSingle();
+  const { data, error } = await supabase.rpc('get_my_profile');
   if (error) throw error;
-  if (data) return toProfile(data, authUser);
-
-  const candidate = {
-    id: authUser.id,
-    full_name: authUser.user_metadata?.full_name || authUser.email,
-    email: authUser.email,
-    role: 'user',
-    account_status: 'active',
-  };
-  const { data: inserted, error: insertError } = await supabase
-    .from('profiles')
-    .upsert(candidate, { onConflict: 'id' })
-    .select('*')
-    .single();
-  if (insertError) throw insertError;
-  return toProfile(inserted, authUser);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error('Your marketplace profile was not returned.');
+  return toProfile(row, authUser);
 }
 
 export function AuthProvider({ children }) {
@@ -57,15 +44,15 @@ export function AuthProvider({ children }) {
   const applyAuthUser = useCallback(async nextUser => {
     setAuthUser(nextUser || null);
     setProfileError('');
-    if (!nextUser) { setProfile(null); return null; }
+    if (!nextUser) { setProfile(null); return { profile: null, error: null }; }
     try {
       const nextProfile = await loadProfile(nextUser);
       setProfile(nextProfile);
-      return nextProfile;
+      return { profile: nextProfile, error: null };
     } catch (error) {
       setProfile(null);
       setProfileError(`Could not load your marketplace profile: ${error.message}`);
-      return null;
+      return { profile: null, error };
     }
   }, []);
 
@@ -99,7 +86,8 @@ export function AuthProvider({ children }) {
 
   const refreshProfile = useCallback(async () => {
     if (!isSupabaseConfigured || !authUser) return profile;
-    return applyAuthUser(authUser);
+    const result = await applyAuthUser(authUser);
+    return result.profile;
   }, [applyAuthUser, authUser, profile]);
 
   const value = useMemo(() => ({
@@ -114,10 +102,12 @@ export function AuthProvider({ children }) {
       if (isSupabaseConfigured) {
         const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
         if (error) return { error };
-        const nextProfile = await applyAuthUser(data.user);
+        const { profile: nextProfile, error: profileLoadError } = await applyAuthUser(data.user);
         if (!nextProfile) {
-          await supabase.auth.signOut();
-          return { error: new Error('Your login succeeded, but your marketplace profile could not be loaded.') };
+          const { error: signOutError } = await supabase.auth.signOut();
+          const details = profileLoadError?.message || 'The profile query returned no row.';
+          const signOutDetails = signOutError ? ` Sign-out also failed: ${signOutError.message}` : '';
+          return { error: new Error(`Your login succeeded, but your marketplace profile could not be loaded: ${details}.${signOutDetails}`) };
         }
         return { data: { user: nextProfile }, error: null };
       }
