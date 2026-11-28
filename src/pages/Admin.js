@@ -16,6 +16,21 @@ function Metric({ label, value, icon }) {
   return <article className="swap-metric-card"><div className="swap-metric-top"><span>{label}</span><span className="swap-metric-icon"><Icon name={icon} size={19} /></span></div><strong className="swap-metric-number">{value}</strong></article>;
 }
 
+function listingImageUrls(row) {
+  if (row.listing_images && Array.isArray(row.listing_images)) {
+    return [...row.listing_images]
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+      .map(image => {
+        if (image.storage_path) {
+          return supabase.storage.from('listing-images').getPublicUrl(image.storage_path).data.publicUrl;
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+  return row.imageUrls || [];
+}
+
 export default function Admin({ section }) {
   const { profile } = useAuth();
   const [live, setLive] = useState({ listings: [], accounts: [], reports: [], logs: [] });
@@ -23,12 +38,14 @@ export default function Admin({ section }) {
   const [sortNewest, setSortNewest] = useState(true);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const current = tabs.find(item => item.id === section);
 
   const load = async () => {
     if (isSupabaseConfigured) {
       const [listings, accountResult, reports, logs] = await Promise.all([
-        supabase.from('listings').select('*, categories(name), profiles(full_name)').eq('approval_status', 'pending').order('created_at', { ascending: false }),
+        supabase.from('listings').select('*, categories(name), profiles(full_name), listing_images(storage_path, sort_order)').eq('approval_status', 'pending').order('created_at', { ascending: false }),
         supabase.rpc('admin_list_profiles'),
         supabase.from('reports').select('*').in('status', ['open', 'pending', 'under_review']).order('created_at', { ascending: false }),
         supabase.from('moderation_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }),
@@ -182,71 +199,104 @@ export default function Admin({ section }) {
   const emptyMessage = search ? 'No matching records.' : `No ${current?.label.toLowerCase()} yet.`;
 
   return (
-    <main className="swap-admin-main">
-      <div className="swap-admin-title-row">
-        <div>
-          <h1>{current?.label}</h1>
-          <p>{section === 'listings' ? 'Review listings awaiting approval.' : section === 'accounts' ? 'Review demo member accounts.' : section === 'reports' ? 'Review reports submitted by members.' : 'Review the local moderation history.'}</p>
-        </div>
-      </div>
-      {notice && <p className="admin-notice" role="status">{notice}</p>}
-      {error && <p className="admin-alert" role="alert">{error}</p>}
-      <div className="swap-metrics-grid">
-        <Metric label="Pending Listings" value={live.listings.length} icon="tag" />
-        <Metric label="Accounts to Verify" value={live.accounts.length} icon="shield" />
-        <Metric label="Open Reports" value={live.reports.length} icon="flag" />
-        <Metric label="Moderation Actions" value={live.logs.length} icon="clipboard" />
-      </div>
-      <section className="swap-admin-table-card" aria-labelledby="admin-records-title">
-        <div className="swap-table-titlebar">
-          <div><h2 id="admin-records-title">{current?.label}</h2><p>Records saved in this browser.</p></div>
-          <div className="swap-table-toolbar">
-            <label className="swap-table-search">
-              <Icon name="search" size={16} />
-              <input aria-label={`Search ${current?.label.toLowerCase() || 'records'}`} placeholder="Search..." value={search} onChange={event => setSearch(event.target.value)} />
-            </label>
-            <button type="button" className="swap-sort-button" aria-pressed={sortNewest} onClick={() => setSortNewest(value => !value)}>
-              Sort: {sortNewest ? 'Newest first' : 'Name A to Z'} <Icon name="chevron" size={15} />
-            </button>
-            {section === 'logs' && <button type="button" className="swap-export-button" onClick={exportLog}><Icon name="download" size={16} />Export log</button>}
+    <>
+      <main className="swap-admin-main">
+        <div className="swap-admin-title-row">
+          <div>
+            <h1>{current?.label}</h1>
+            <p>{section === 'listings' ? 'Review listings awaiting approval.' : section === 'accounts' ? 'Review demo member accounts.' : section === 'reports' ? 'Review reports submitted by members.' : 'Review the local moderation history.'}</p>
           </div>
         </div>
-        <div className="swap-table-scroll">
-          <table className="swap-admin-table" aria-label={`${current?.label || 'Admin'} records`}>
-            <thead>
-              <tr>
-                {section === 'listings' ? <><th>ID</th><th>LISTING</th><th>SELLER</th><th>CATEGORY</th><th>PRICE</th><th>STATUS</th><th>ACTIONS</th></>
-                  : section === 'accounts' ? <><th>ACCOUNT</th><th>CLASSIFICATION</th><th>CREATED</th><th>STATUS</th><th>ACTIONS</th></>
-                    : section === 'reports' ? <><th>ID</th><th>SUBJECT</th><th>REASON</th><th>REPORTED BY</th><th>DATE</th><th>ACTIONS</th></>
-                      : <><th>TIME</th><th>ADMINISTRATOR</th><th>ACTION</th><th>TARGET</th><th>NOTE</th></>}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(row => (
-                <tr key={row.id}>
-                  {section === 'listings' ? <>
-                    <td>L-{row.id.slice(-6).toUpperCase()}</td>
-                    <td><strong>{row.title}</strong><small>{row.listing_type} · Posted {new Date(row.created_at).toLocaleDateString()}</small></td>
-                    <td>{readStore().accounts.find(account => account.id === row.owner_id)?.full_name}</td>
-                    <td>{row.category}</td><td>{formatCurrency(row.price)}</td><td><span className="swap-status-chip swap-status-pending">Pending</span></td>
-                    <td className="swap-table-actions"><button type="button" className="swap-action-primary" onClick={() => decide(row, 'approve')}>Approve</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'reject')}>Reject</button><button type="button" className="swap-action-danger" onClick={() => decide(row, 'delete')}>Delete</button></td>
-                  </> : section === 'accounts' ? <>
-                    <td>{row.full_name}<small>{row.email}</small></td><td>{row.classification}</td><td>{new Date(row.created_at || Date.now()).toLocaleDateString()}</td><td>Needs verification</td>
-                    <td className="swap-table-actions"><button type="button" className="swap-action-primary" onClick={() => decide(row, 'verify')}>Verify</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'decline')}>Decline</button></td>
-                  </> : section === 'reports' ? <>
-                    <td>{row.id}</td><td>{row.target_type} · {row.target_id}</td><td>{row.reason}</td><td>{row.reporter_name}</td><td>{new Date(row.created_at).toLocaleDateString()}</td>
-                    <td className="swap-table-actions"><button type="button" className="swap-action-primary" onClick={() => decide(row, 'resolved')}>Resolve</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'dismissed')}>Dismiss</button></td>
-                  </> : <>
-                    <td>{new Date(row.created_at).toLocaleString()}</td><td>{row.admin?.full_name || 'Administrator'}</td><td>{row.action}</td><td>{row.target_type} · {row.target_id}</td><td>{row.note || '—'}</td>
-                  </>}
-                </tr>
-              ))}
-              {!rows.length && <tr><td className="swap-empty-cell" colSpan={section === 'listings' ? 7 : section === 'accounts' ? 5 : section === 'reports' ? 6 : 5}>{emptyMessage}</td></tr>}
-            </tbody>
-          </table>
+        {notice && <p className="admin-notice" role="status">{notice}</p>}
+        {error && <p className="admin-alert" role="alert">{error}</p>}
+        <div className="swap-metrics-grid">
+          <Metric label="Pending Listings" value={live.listings.length} icon="tag" />
+          <Metric label="Accounts to Verify" value={live.accounts.length} icon="shield" />
+          <Metric label="Open Reports" value={live.reports.length} icon="flag" />
+          <Metric label="Moderation Actions" value={live.logs.length} icon="clipboard" />
         </div>
-        <footer className="swap-table-footer" aria-live="polite" aria-atomic="true"><span>{rows.length} {section === 'logs' ? 'actions' : section}</span></footer>
-      </section>
-    </main>
+        <section className="swap-admin-table-card" aria-labelledby="admin-records-title">
+          <div className="swap-table-titlebar">
+            <div><h2 id="admin-records-title">{current?.label}</h2><p>Records saved in this browser.</p></div>
+            <div className="swap-table-toolbar">
+              <label className="swap-table-search">
+                <Icon name="search" size={16} />
+                <input aria-label={`Search ${current?.label.toLowerCase() || 'records'}`} placeholder="Search..." value={search} onChange={event => setSearch(event.target.value)} />
+              </label>
+              <button type="button" className="swap-sort-button" aria-pressed={sortNewest} onClick={() => setSortNewest(value => !value)}>
+                Sort: {sortNewest ? 'Newest first' : 'Name A to Z'} <Icon name="chevron" size={15} />
+              </button>
+              {section === 'logs' && <button type="button" className="swap-export-button" onClick={exportLog}><Icon name="download" size={16} />Export log</button>}
+            </div>
+          </div>
+          <div className="swap-table-scroll">
+            <table className="swap-admin-table" aria-label={`${current?.label || 'Admin'} records`}>
+              <thead>
+                <tr>
+                  {section === 'listings' ? <><th>ID</th><th>LISTING</th><th>SELLER</th><th>CATEGORY</th><th>PRICE</th><th>STATUS</th><th>ACTIONS</th></>
+                    : section === 'accounts' ? <><th>ACCOUNT</th><th>CLASSIFICATION</th><th>CREATED</th><th>STATUS</th><th>ACTIONS</th></>
+                      : section === 'reports' ? <><th>ID</th><th>SUBJECT</th><th>REASON</th><th>REPORTED BY</th><th>DATE</th><th>ACTIONS</th></>
+                        : <><th>TIME</th><th>ADMINISTRATOR</th><th>ACTION</th><th>TARGET</th><th>NOTE</th></>}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(row => (
+                  <tr key={row.id}>
+                    {section === 'listings' ? <>
+                      <td>L-{row.id.slice(-6).toUpperCase()}</td>
+                      <td><strong>{row.title}</strong><small>{row.listing_type} · Posted {new Date(row.created_at).toLocaleDateString()}</small></td>
+                      <td>{readStore().accounts.find(account => account.id === row.owner_id)?.full_name}</td>
+                      <td>{row.category}</td><td>{formatCurrency(row.price)}</td><td><span className="swap-status-chip swap-status-pending">Pending</span></td>
+                      <td className="swap-table-actions"><button type="button" className="swap-action-secondary" onClick={() => { setPreview(row); setPreviewOpen(true); }}>Preview</button><button type="button" className="swap-action-primary" onClick={() => decide(row, 'approve')}>Approve</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'reject')}>Reject</button><button type="button" className="swap-action-danger" onClick={() => decide(row, 'delete')}>Delete</button></td>
+                    </> : section === 'accounts' ? <>
+                      <td>{row.full_name}<small>{row.email}</small></td><td>{row.classification}</td><td>{new Date(row.created_at || Date.now()).toLocaleDateString()}</td><td>Needs verification</td>
+                      <td className="swap-table-actions"><button type="button" className="swap-action-primary" onClick={() => decide(row, 'verify')}>Verify</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'decline')}>Decline</button></td>
+                    </> : section === 'reports' ? <>
+                      <td>{row.id}</td><td>{row.target_type} · {row.target_id}</td><td>{row.reason}</td><td>{row.reporter_name}</td><td>{new Date(row.created_at).toLocaleDateString()}</td>
+                      <td className="swap-table-actions"><button type="button" className="swap-action-primary" onClick={() => decide(row, 'resolved')}>Resolve</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'dismissed')}>Dismiss</button></td>
+                    </> : <>
+                      <td>{new Date(row.created_at).toLocaleString()}</td><td>{row.admin?.full_name || 'Administrator'}</td><td>{row.action}</td><td>{row.target_type} · {row.target_id}</td><td>{row.note || '—'}</td>
+                    </>}
+                  </tr>
+                ))}
+                {!rows.length && <tr><td className="swap-empty-cell" colSpan={section === 'listings' ? 7 : section === 'accounts' ? 5 : section === 'reports' ? 6 : 5}>{emptyMessage}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <footer className="swap-table-footer" aria-live="polite" aria-atomic="true"><span>{rows.length} {section === 'logs' ? 'actions' : section}</span></footer>
+        </section>
+      </main>
+
+      {previewOpen && preview && (
+        <div className="swap-preview-overlay" onClick={() => setPreviewOpen(false)} role="dialog" aria-modal="true" aria-label="Listing preview">
+          <div className="swap-preview-card" onClick={event => event.stopPropagation()}>
+            <button type="button" className="swap-preview-close" onClick={() => setPreviewOpen(false)} aria-label="Close preview">✕</button>
+            <div className="swap-preview-images">
+              {listingImageUrls(preview).map((url, index) => (
+                <img key={index} src={url} alt={`${preview.title}`} className="swap-preview-image" />
+              ))}
+              {!listingImageUrls(preview).length && <div className="swap-preview-empty">No photos</div>}
+            </div>
+            <div className="swap-preview-body">
+              <h2>{preview.title}</h2>
+              <p className="swap-preview-meta"><strong>Category:</strong> {preview.category}</p>
+              <p className="swap-preview-meta"><strong>Type:</strong> {preview.listing_type === 'rent' ? 'For rent' : preview.listing_type === 'both' ? 'Sale or rent' : 'For sale'}</p>
+              <p className="swap-preview-meta"><strong>Price:</strong> {formatCurrency(preview.price)}{preview.listing_type === 'rent' ? ' / day' : ''}</p>
+              {preview.listing_type !== 'sale' && preview.deposit && <p className="swap-preview-meta"><strong>Deposit:</strong> {formatCurrency(preview.deposit)}</p>}
+              <p className="swap-preview-meta"><strong>Pickup:</strong> {preview.location || preview.pickup || 'Arrange a campus meetup with the owner.'}</p>
+              <p className="swap-preview-meta"><strong>Condition:</strong> {preview.condition}</p>
+              <p className="swap-preview-meta"><strong>Owner:</strong> {preview.owner}</p>
+              {preview.rental_terms && <p className="swap-preview-meta"><strong>Rental terms:</strong> {preview.rental_terms}</p>}
+              <p className="swap-preview-description"><strong>Description:</strong> {preview.description}</p>
+              <div className="swap-preview-actions">
+                <button type="button" className="swap-action-primary" onClick={() => { setPreviewOpen(false); decide(preview, 'approve'); }}>Approve</button>
+                <button type="button" className="swap-action-secondary" onClick={() => { setPreviewOpen(false); decide(preview, 'reject'); }}>Reject</button>
+                <button type="button" className="swap-action-danger" onClick={() => { setPreviewOpen(false); decide(preview, 'delete'); }}>Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

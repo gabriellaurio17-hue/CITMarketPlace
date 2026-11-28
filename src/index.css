@@ -62,7 +62,7 @@ input:not([type="checkbox"]):not([type="radio"]), select, textarea { border-colo
   display: flex; align-items: center; justify-content: space-between; gap: 25px;
 }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--maroon); font-size: 18px; font-weight: 700; letter-spacing: -.7px; white-space: nowrap; }
-.brand-mark { width: 38px; height: 38px; color: var(--maroon); flex: 0 0 auto; }
+.brand-mark { width: 46px; height: 46px; color: var(--maroon); flex: 0 0 auto; border-radius: 12px; overflow: hidden; }
 .brand-light { color: var(--ivory); }
 .nav-links { display: flex; align-items: center; gap: 29px; }
 .nav-link { position: relative; min-height: 44px; display: inline-flex; align-items: center; color: #625750; font-size: 14px; font-weight: 500; }
@@ -542,7 +542,7 @@ td small { display: block; margin-top: 4px; color: #625750; font-size: 9px; }
 .phone-topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
 .phone-topbar > button { width: 44px; height: 44px; border: 0; border-radius: 50%; background: transparent; color: var(--maroon); font-size: 19px; cursor: pointer; }
 .phone-topbar .brand { gap: 6px; font-size: 13px; }
-.phone-topbar .brand-mark { width: 30px; height: 30px; }
+.phone-topbar .brand-mark { width: 36px; height: 36px; border-radius: 10px; overflow: hidden; }
 .phone-content { padding: 8px 25px 24px; }
 .mobile-item-visual { height: 277px; position: relative; overflow: hidden; border-radius: 24px; background: linear-gradient(145deg,#d9c0bb,#91716f); }
 .mobile-olive { background: linear-gradient(145deg,#d4d6ba,#879274); }
@@ -593,7 +593,7 @@ td small { display: block; margin-top: 4px; color: #625750; font-size: 9px; }
   .content-width, .bento-grid { width: min(100% - 36px, 600px); }
   .header-inner { width: calc(100% - 34px); min-height: 72px; flex-wrap: wrap; gap: 0 12px; padding: 11px 0; }
   .brand { font-size: 16px; }
-  .brand-mark { width: 34px; height: 34px; }
+  .brand-mark { width: 42px; height: 42px; border-radius: 11px; overflow: hidden; }
   .nav-links { order: 3; width: 100%; justify-content: space-between; gap: 6px; }
   .nav-link { min-height: 44px; font-size: 11px; }
   .header-actions { margin-left: auto; }
@@ -685,7 +685,7 @@ td small { display: block; margin-top: 4px; color: #625750; font-size: 9px; }
   .content-width, .photo-panel { width: calc(100% - 32px); }
   .header-inner { width: calc(100% - 28px); }
   .header-inner > .brand { font-size: 14px; }
-  .header-inner .brand-mark { width: 31px; height: 31px; }
+  .header-inner .brand-mark { width: 39px; height: 39px; border-radius: 11px; overflow: hidden; }
   .nav-links { gap: 2px; }
   .nav-link { font-size: 10px; }
   .header-actions { gap: 6px; }
@@ -831,7 +831,7 @@ td small { display: block; margin-top: 4px; color: #625750; font-size: 9px; }
   .content-width, .photo-panel { width: calc(100% - 24px); }
   .header-inner { width: calc(100% - 20px); }
   .header-inner > .brand { gap: 5px; font-size: 12px; }
-  .header-inner .brand-mark { width: 28px; height: 28px; }
+  .header-inner .brand-mark { width: 36px; height: 36px; border-radius: 10px; overflow: hidden; }
   .nav-link { font-size: 9px; }
   .user-chip { display: none; }
   .bento-grid { grid-template-rows: 230px 175px 190px 205px; gap: 7px; }
@@ -1249,7 +1249,7 @@ td small { display: block; margin-top: 4px; color: #625750; font-size: 9px; }
 @media (max-width: 760px) {
   .browse-header-main { width: calc(100% - 30px); min-height: 75px; flex-wrap: wrap; gap: 10px 14px; padding: 12px 0; }
   .browse-storefront .brand { font-size: 15px; }
-  .browse-storefront .brand-mark { width: 33px; height: 33px; }
+  .browse-storefront .brand-mark { width: 41px; height: 41px; border-radius: 11px; overflow: hidden; }
   .browse-header-actions { margin-left: auto; gap: 7px; }
   .browse-user-name { display: none; }
   .browse-header-search { order: 3; width: 100%; flex-basis: 100%; }
@@ -1473,6 +1473,23 @@ td small { display: block; margin-top: 4px; color: #625750; font-size: 9px; }
 .swap-empty-cell { height: 100px !important; color: #6B5B5E; text-align: center; }
 .swap-table-footer { display: flex; justify-content: space-between; gap: 10px; color: #6B5B5E; font-size: 9px; }
 .swap-preview-note { margin: -6px 0 0; color: #6B5B5E; text-align: center; font-size: 9px; }
+.swap-preview-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0,0,0,0.55); padding: 24px; }
+.swap-preview-card { width: min(720px, 92vw); max-height: 92vh; overflow: auto; display: flex; flex-direction: column; gap: 14px; border-radius: 20px; padding: 20px; background: #fff; border: 1px solid #F0E6D0; color: #3F3438; position: relative; }
+.swap-preview-close { position: absolute; top: 12px; right: 14px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: #ECE7EA; border: 0; font-size: 16px; line-height: 1; cursor: pointer; color: #3F3438; }
+.swap-preview-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; border-radius: 12px; overflow: hidden; background: #ECE7EA; }
+.swap-preview-image { width: 100%; height: 150px; object-fit: cover; display: block; }
+.swap-preview-empty { height: 150px; display: grid; place-items: center; color: #6B5B5E; font-size: 9px; }
+.swap-preview-body h2 { margin: 0 0 10px; font-size: 18px; color: var(--deep-maroon); }
+.swap-preview-meta { margin: 4px 0; font-size: 11px; display: flex; gap: 8px; }
+.swap-preview-meta strong { min-width: 105px; color: #5F5054; flex: 0 0 auto; }
+.swap-preview-description { margin: 8px 0 12px; font-size: 11px; line-height: 1.45; color: #3F3438; }
+.swap-preview-description strong { color: #5F5054; }
+.swap-preview-actions { display: flex; gap: 8px; margin-top: 4px; }
+.swap-preview-actions button { flex: 1; }
+@media (max-width: 600px) {
+  .swap-preview-card { width: min(92vw, 560px); padding: 16px; }
+  .swap-preview-image { height: 120px; }
+}
 @media (max-width: 860px) {
   .administrator-page-shell { padding: 12px; }
   .administrator-frame { min-height: calc(100vh - 24px); padding: 12px; border-radius: 22px; }
