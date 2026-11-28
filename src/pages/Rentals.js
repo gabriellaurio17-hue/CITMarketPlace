@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { logNotification, readStore, updateStore } from '../data/localStore';
 import { createMarketplaceNotification, createMarketplaceTransaction, findMarketplaceMemberByEmail, loadMarketplaceTransactions, updateMarketplaceTransaction } from '../data/marketplaceApi';
@@ -13,10 +13,19 @@ export default function Rentals() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [invalidField, setInvalidField] = useState('');
+  const toastTimer = useRef(null);
+  const clearToastTimer = () => { if (toastTimer.current) clearTimeout(toastTimer.current); toastTimer.current = null; };
 
   useEffect(() => {
     if (error && invalidField) document.getElementById(invalidField)?.focus();
   }, [error, invalidField]);
+
+  useEffect(() => {
+    clearToastTimer();
+    if (notice || error) {
+      toastTimer.current = setTimeout(() => { setNotice(''); setError(''); }, 4000);
+    }
+  }, [notice, error]);
 
   const load = useCallback(async () => {
     if (isSupabaseConfigured) {
@@ -80,7 +89,7 @@ export default function Rentals() {
       if (!renter.is_verified) { setInvalidField('renter-email'); setError('The renter must complete account verification.'); return; }
       try {
         await createMarketplaceTransaction({ type: 'rental', status: 'pending', buyer_id: renter.id, seller_id: user.id, listing_id: listing.id, start_date: form.start, end_date: form.end, deposit_amount: listing.deposit || 0, deposit_status: listing.deposit ? 'pending' : 'not_applicable' });
-        try { await createMarketplaceNotification(renter.id, 'rental_request', `${user.email.split('@')[0]} submitted a rental request for ${listing.title}.`); } catch { /* Recipient-write RLS may reserve notifications for server workflows. */ }
+        await createMarketplaceNotification(renter.id, 'rental_request', `${user.email.split('@')[0]} submitted a rental request for ${listing.title}.`);
         setNotice('Rental recorded and the renter has been notified.');
         setForm({ listing: '', renterEmail: '', start: '', end: '' });
         await load();
@@ -119,7 +128,7 @@ export default function Rentals() {
       try {
         await updateMarketplaceTransaction(id, { status: 'returned', deposit_status: 'returned' });
         if (transaction) await supabase.from('listings').update({ availability: 'active' }).eq('id', transaction.listing_id);
-        if (transaction) try { await createMarketplaceNotification(transaction.buyer_id, 'rental_returned', `${transaction.listings?.title || 'Your rental'} was marked returned.`); } catch { /* Notification is optional under current RLS. */ }
+        if (transaction) await createMarketplaceNotification(transaction.buyer_id, 'rental_returned', `${transaction.listings?.title || 'Your rental'} was marked returned.`);
         setNotice('Rental marked returned.'); await load();
       } catch (saveError) { setError(saveError.message || 'Could not update the rental.'); }
       return;
@@ -137,7 +146,7 @@ export default function Rentals() {
       try {
         await updateMarketplaceTransaction(id, { status: 'approved', deposit_status: transaction?.deposit_amount > 0 ? 'held' : 'not_applicable' });
         if (transaction) await supabase.from('listings').update({ availability: 'unavailable' }).eq('id', transaction.listing_id);
-        if (transaction) try { await createMarketplaceNotification(transaction.buyer_id, 'rental_approved', `${transaction.listings?.title || 'Your rental'} was approved.`); } catch { /* Notification is optional under current RLS. */ }
+        if (transaction) await createMarketplaceNotification(transaction.buyer_id, 'rental_approved', `${transaction.listings?.title || 'Your rental'} was approved.`);
         setNotice('Rental approved.'); await load();
       } catch (saveError) { setError(saveError.message || 'Could not approve the rental.'); }
       return;
@@ -159,7 +168,7 @@ export default function Rentals() {
       const transaction = rows.find(item => item.id === id);
       try {
         await updateMarketplaceTransaction(id, { status: 'cancelled' });
-        if (transaction) try { await createMarketplaceNotification(transaction.buyer_id, 'rental_rejected', `${transaction.listings?.title || 'Your rental request'} was rejected.`); } catch { /* Notification is optional under current RLS. */ }
+        if (transaction) await createMarketplaceNotification(transaction.buyer_id, 'rental_rejected', `${transaction.listings?.title || 'Your rental request'} was rejected.`);
         setNotice('Rental request rejected.'); await load();
       } catch (saveError) { setError(saveError.message || 'Could not reject the rental.'); }
       return;
@@ -181,7 +190,7 @@ export default function Rentals() {
         await updateMarketplaceTransaction(id, { status: 'completed', deposit_status: transaction?.deposit_status === 'held' ? 'returned' : transaction?.deposit_status });
         if (transaction) await supabase.from('listings').update({ availability: 'active' }).eq('id', transaction.listing_id);
         if (transaction) for (const participantId of [transaction.seller_id, transaction.buyer_id]) {
-          try { await createMarketplaceNotification(participantId, 'rental_completed', `${transaction.listings?.title || 'The rental'} is complete and eligible for a seller review.`); } catch { /* Notification is optional under current RLS. */ }
+          await createMarketplaceNotification(participantId, 'rental_completed', `${transaction.listings?.title || 'The rental'} is complete and eligible for a seller review.`);
         }
         setNotice('Rental completed. The renter may submit a seller review.'); await load();
       } catch (saveError) { setError(saveError.message || 'Could not complete the rental.'); }
@@ -203,21 +212,28 @@ export default function Rentals() {
 
   return <div className="content-width standard-page" role="main">
     <div className="page-heading"><span className="eyebrow">KEEP THE GOOD THINGS MOVING</span><h1>Rental<br />check-in<span>.</span></h1><p>A clear view of what’s out, what’s due, and what’s back.</p></div>
-    {error && <p className="admin-alert" id="rental-form-error" role="alert">{error}</p>}{notice && <p className="admin-notice" role="status">{notice}</p>}
+    {(notice || error) && (
+      <div className="toast-wrap" role={error ? 'alert' : 'status'} aria-live="polite" id={error ? 'rental-form-error' : undefined}>
+        <div className={`toast ${error ? 'error' : 'success'}`}>
+          {error || notice}
+          <button onClick={() => { setNotice(''); setError(''); }} aria-label="Dismiss">✕</button>
+        </div>
+      </div>
+    )}
     <section className="table-card"><div className="table-heading"><div><h2>Your rentals</h2><p>Meet up, exchange in person, and keep this list up to date.</p></div><span className="table-count">{rows.length} rentals</span></div>
       <div className="table-scroll"><table><thead><tr><th>ITEM</th><th>RENTER</th><th>START</th><th>END</th><th>DEPOSIT</th><th>STATUS</th><th>ACTIONS</th></tr></thead><tbody>
         {rows.map(item => <tr key={item.id}><td><strong>{item.listings?.title}</strong><small>CIT Marketplace</small></td><td>{item.renter?.full_name || readStore().accounts.find(account => account.id === item.buyer_id)?.full_name}</td><td>{item.start_date}</td><td>{item.end_date}</td><td>{formatCurrency(item.deposit_amount)} · {item.deposit_status}</td><td><span className={`status-pill status-${item.status}`}>{item.status}</span></td><td>{item.status === 'pending' && item.seller_id === user.id && <><button className="return-button" onClick={() => approve(item.id)}>Approve</button><button className="text-button" onClick={() => reject(item.id)}>Reject</button></>}{['ongoing','overdue','approved'].includes(item.status) && item.seller_id === user.id && <button className="return-button" onClick={() => returned(item.id)}>Mark returned</button>}{item.status === 'returned' && item.seller_id === user.id && <button className="return-button" onClick={() => completeRental(item.id)}>Complete rental</button>}</td></tr>)}
         {!rows.length && <tr><td colSpan="7">No rental transactions yet.</td></tr>}
       </tbody></table></div>
     </section>
-    <section className="form-card rental-record-form"><div className="form-section-heading"><span className="step-number">＋</span><div><h2>Record a rental</h2><p>Record the in-person arrangement and notify the renter.</p></div></div>
+    <section className="form-card rental-record-form"><div className="form-section-heading"><span className="step-number" aria-hidden="true">＋</span><div><h2>Record a rental</h2><p>Record the in-person arrangement and notify the renter.</p></div></div>
       {!owned.length && <p className="admin-empty">There are no approved, active rental listings on your account yet.</p>}
-      <form className="auth-form" onSubmit={submit}><label className="field-label" htmlFor="rental-listing">Your approved rental listing</label><select id="rental-listing" value={form.listing} onChange={event => setForm(current => ({ ...current, listing: event.target.value }))} required><option value="">Choose a listing</option>{owned.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
+      <form className="auth-form" onSubmit={submit}><label className="field-label" htmlFor="rental-listing">Your approved rental listing</label><select id="rental-listing" value={form.listing} onChange={event => setForm(current => ({ ...current, listing: event.target.value }))} required><option value="" disabled>Choose a listing</option>{owned.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
         <label className="field-label" htmlFor="renter-email">Renter’s @cit.edu email</label><input id="renter-email" type="email" value={form.renterEmail} aria-invalid={Boolean(error && invalidField === 'renter-email')} aria-describedby={error && invalidField === 'renter-email' ? 'rental-form-error' : undefined} onChange={event => { setForm(current => ({ ...current, renterEmail: event.target.value })); setError(''); setInvalidField(''); }} required />
         <div className="form-two-columns"><div><label className="field-label" htmlFor="rental-start">Start date</label><input id="rental-start" type="date" value={form.start} onChange={event => setForm(current => ({ ...current, start: event.target.value }))} required /></div><div><label className="field-label" htmlFor="rental-end">End date</label><input id="rental-end" type="date" min={form.start || undefined} value={form.end} onChange={event => setForm(current => ({ ...current, end: event.target.value }))} required /></div></div>
         <button className="button" disabled={!owned.length}>Record rental</button>
       </form>
     </section>
-    <div className="offline-banner"><span>↗</span><p><strong>Remember: the hand-off happens in person.</strong><br />Agree on a public campus meetup and exchange the item and deposit offline.</p></div>
+    <div className="offline-banner"><span aria-hidden="true">↗</span><p><strong>Remember: the hand-off happens in person.</strong><br />Agree on a public campus meetup and exchange the item and deposit offline.</p></div>
   </div>;
 }

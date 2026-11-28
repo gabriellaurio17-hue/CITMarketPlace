@@ -3,6 +3,7 @@ import { isListingPending, readStore, updateStore, updateListingApproval } from 
 import formatCurrency from '../utils/formatCurrency';
 import Icon from '../components/admin/Icon';
 import { useAuth } from '../auth/AuthContext';
+import { createMarketplaceNotification } from '../data/marketplaceApi';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 const tabs = [
@@ -40,6 +41,31 @@ export default function Admin({ section }) {
   const [error, setError] = useState('');
   const [preview, setPreview] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [reportAction, setReportAction] = useState(null);
+  const [dismissReason, setDismissReason] = useState('');
+  const [reportListingImages, setReportListingImages] = useState([]);
+  const fetchReportListingImages = async (listingId) => {
+    try {
+      const { data } = await supabase.from('listings').select('listing_images(storage_path, sort_order)').eq('id', listingId).single();
+      if (data?.listing_images) {
+        const urls = [...data.listing_images]
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
+          .map(image => {
+            if (image.storage_path) {
+              return supabase.storage.from('listing-images').getPublicUrl(image.storage_path).data.publicUrl;
+            }
+            return null;
+          })
+          .filter(Boolean);
+        setReportListingImages(urls);
+      } else {
+        setReportListingImages([]);
+      }
+    } catch {
+      setReportListingImages([]);
+    }
+  };
+
   const current = tabs.find(item => item.id === section);
 
   const load = async () => {
@@ -47,7 +73,7 @@ export default function Admin({ section }) {
       const [listings, accountResult, reports, logs] = await Promise.all([
         supabase.from('listings').select('*, categories(name), profiles(full_name), listing_images(storage_path, sort_order)').eq('approval_status', 'pending').order('created_at', { ascending: false }),
         supabase.rpc('admin_list_profiles'),
-        supabase.from('reports').select('*').in('status', ['open', 'pending', 'under_review']).order('created_at', { ascending: false }),
+        supabase.from('reports').select('*, profiles!reports_reporter_id_fkey(full_name)').in('status', ['open', 'pending', 'under_review']).order('created_at', { ascending: false }),
         supabase.from('moderation_logs').select('*, profiles(full_name)').order('created_at', { ascending: false }),
       ]);
       const accounts = (accountResult.data || []).filter(item =>
@@ -57,7 +83,7 @@ export default function Admin({ section }) {
       setLive({
         listings: (listings.data || []).map(row => ({ ...row, category: row.categories?.name || 'Other', owner: row.profiles?.full_name || 'CIT member' })),
         accounts: accounts.map(row => ({ ...row, full_name: row.full_name || row.username || row.email })),
-        reports: reports.data || [],
+        reports: (reports.data || []).map(row => ({ ...row, reporter_name: row.profiles?.full_name || 'Unknown' })),
         logs: (logs.data || []).map(row => ({ ...row, admin: row.profiles || null })),
       });
       if (listings.error || accountResult.error || reports.error || logs.error) {
@@ -83,6 +109,14 @@ export default function Admin({ section }) {
     return () => window.removeEventListener('marketplace-store-change', load);
   }, []);
 
+  useEffect(() => {
+    if (previewOpen && preview && preview.target_type === 'listing') {
+      fetchReportListingImages(preview.target_id);
+    } else if (!previewOpen || !preview) {
+      setReportListingImages([]);
+    }
+  }, [previewOpen, preview]);
+
   const rows = useMemo(() => {
     const query = search.toLowerCase();
     return (live[section] || [])
@@ -101,11 +135,15 @@ export default function Admin({ section }) {
         try {
           if (section === 'listings') {
             if (action === 'delete') {
+              const { data: deleted } = await supabase.from('listings').select('owner_id, title').eq('id', row.id).single();
               const { error } = await supabase.from('listings').delete().eq('id', row.id);
               if (error) throw error;
+              if (deleted?.owner_id) { try { await createMarketplaceNotification(deleted.owner_id, 'listing_deleted', `Your listing "${deleted.title}" was removed by an administrator.`); } catch { /* Listing owner may not have an active profile. */ } }
             } else {
               const { error } = await supabase.from('listings').update({ approval_status: action === 'approve' ? 'approved' : 'rejected' }).eq('id', row.id);
               if (error) throw error;
+              const { data: updated } = await supabase.from('listings').select('owner_id, title').eq('id', row.id).single();
+              if (updated?.owner_id) { try { await createMarketplaceNotification(updated.owner_id, `listing_${action === 'approve' ? 'approved' : 'rejected'}`, `Your listing "${updated.title}" was ${action === 'approve' ? 'approved' : 'rejected'} by an administrator.`); } catch { /* Listing owner may not have an active profile. */ } }
             }
           } else if (section === 'accounts') {
             const { error } = await supabase.rpc('admin_set_profile_verification', {
@@ -114,8 +152,30 @@ export default function Admin({ section }) {
             });
             if (error) throw error;
           } else if (section === 'reports') {
-            const { error } = await supabase.from('reports').update({ status: action }).eq('id', row.id);
-            if (error) throw error;
+            if (action === 'dismissed') {
+              const { error } = await supabase.from('reports').update({ status: 'dismissed' }).eq('id', row.id);
+              if (error) throw error;
+              try { await createMarketplaceNotification(row.reporter_id, 'report_dismissed', `Your report on "${row.reason}" was dismissed. Reason: ${dismissReason || 'No reason provided.'}`); } catch { /* Reporter may not have an active profile to notify. */ }
+            } else if (action === 'delete_item') {
+              const { data: listed } = await supabase.from('listings').select('owner_id, title').eq('id', row.target_id).single();
+              const ownerId = row.owner_id || listed?.owner_id;
+              const { error } = await supabase.from('listings').delete().eq('id', row.target_id);
+              if (error) throw error;
+              const { error: updError } = await supabase.from('reports').update({ status: 'resolved' }).eq('id', row.id);
+              if (updError) throw updError;
+              try { await createMarketplaceNotification(row.reporter_id, 'report_resolved_item_deleted', `Your report on "${row.reason}" was resolved. The reported item has been removed.`); } catch { /* Reporter may not have an active profile to notify. */ }
+              if (ownerId) { try { await createMarketplaceNotification(ownerId, 'listing_deleted', `Your listing "${listed?.title || 'this item'}" was removed by an administrator after a report.`); } catch { /* Listing owner may not have an active profile. */ } }
+            } else if (action === 'delete_user') {
+              const { error } = await supabase.from('profiles').update({ account_status: 'deleted', verification_status: 'rejected' }).eq('id', row.target_id);
+              if (error) throw error;
+              const { error: updError } = await supabase.from('reports').update({ status: 'resolved' }).eq('id', row.id);
+              if (updError) throw updError;
+              try { await createMarketplaceNotification(row.target_id, 'account_deleted', 'Your CIT Marketplace account has been deleted by an administrator. You will not be able to log in.'); } catch { /* Warned user may not have an active profile to notify. */ }
+            } else if (action === 'warn_user') {
+              const { error } = await supabase.from('reports').update({ status: 'resolved' }).eq('id', row.id);
+              if (error) throw error;
+              try { await createMarketplaceNotification(row.target_id, 'account_warned', 'You have received a warning from a CIT Marketplace administrator regarding a report against your account or listing.'); } catch { /* Warned user may not have an active profile to notify. */ }
+            }
           }
           if (section !== 'accounts') {
             const { error } = await supabase.rpc('record_admin_moderation_action', {
@@ -127,6 +187,8 @@ export default function Admin({ section }) {
             if (error) throw error;
           }
           await load();
+          setReportAction(null);
+          setDismissReason('');
           const target = row.title || row.full_name || 'Report';
           setNotice(`${target}: ${action === 'delete' ? 'deleted' : action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action === 'verify' ? 'verified' : action === 'decline' ? 'declined' : action}.`);
         } catch (saveError) {
@@ -139,8 +201,15 @@ export default function Admin({ section }) {
       updateStore(store => {
         const now = new Date().toISOString();
         if (section === 'listings') {
-          if (action === 'delete') store.listings = store.listings.filter(item => item.id !== row.id);
-          else if (!updateListingApproval(store, row.id, action === 'approve' ? 'approved' : 'rejected')) throw new Error('The listing could not be found.');
+          if (action === 'delete') {
+            const listing = store.listings.find(item => item.id === row.id);
+            store.listings = store.listings.filter(item => item.id !== row.id);
+            if (listing?.owner_id) { store.notifications.unshift({ id: `note-${Date.now()}-listing-deleted`, user_id: listing.owner_id, title: 'Listing removed', message: `Your listing "${listing.title}" was removed by an administrator.`, type: 'listing_deleted', related_id: listing.id, is_read: false, created_at: now }); }
+          } else {
+            const listing = store.listings.find(item => item.id === row.id);
+            if (!updateListingApproval(store, row.id, action === 'approve' ? 'approved' : 'rejected')) throw new Error('The listing could not be found.');
+            if (listing?.owner_id) { store.notifications.unshift({ id: `note-${Date.now()}-listing-${action}`, user_id: listing.owner_id, title: `Listing ${action === 'approve' ? 'approved' : 'rejected'}`, message: `Your listing "${listing.title}" was ${action === 'approve' ? 'approved' : 'rejected'} by an administrator.`, type: `listing_${action === 'approve' ? 'approved' : 'rejected'}`, related_id: listing.id, is_read: false, created_at: now }); }
+          }
         } else if (section === 'accounts') {
           const account = store.accounts.find(item => item.id === row.id);
           if (!account) throw new Error('The account could not be found.');
@@ -162,7 +231,61 @@ export default function Admin({ section }) {
         } else {
           const report = store.reports.find(item => item.id === row.id);
           if (!report) throw new Error('The report could not be found.');
-          report.status = action;
+          if (action === 'dismissed') {
+            report.status = 'dismissed';
+            report.dismissal_reason = dismissReason || 'No reason provided.';
+            store.notifications.unshift({
+              id: `note-${Date.now()}-report-dismissed`,
+              user_id: report.reporter_id,
+              title: 'Report dismissed',
+              message: `Your report on "${report.reason}" was dismissed. Reason: ${dismissReason || 'No reason provided.'}`,
+              type: 'report_dismissed',
+              related_id: report.id,
+              is_read: false,
+              created_at: now,
+            });
+          } else if (action === 'delete_item') {
+            const listing = store.listings.find(item => item.id === row.target_id);
+            store.listings = store.listings.filter(item => item.id !== row.target_id);
+            report.status = 'resolved';
+            store.notifications.unshift({
+              id: `note-${Date.now()}-report-item-deleted`,
+              user_id: report.reporter_id,
+              title: 'Report resolved - item removed',
+              message: `Your report on "${report.reason}" was resolved. The reported item has been removed.`,
+              type: 'report_resolved_item_deleted',
+              related_id: report.id,
+              is_read: false,
+              created_at: now,
+            });
+            if (listing?.owner_id) { store.notifications.unshift({ id: `note-${Date.now()}-listing-deleted`, user_id: listing.owner_id, title: 'Listing removed', message: `Your listing "${listing.title}" was removed by an administrator after a report.`, type: 'listing_deleted', related_id: listing.id, is_read: false, created_at: now }); }
+          } else if (action === 'delete_user') {
+            const account = store.accounts.find(item => item.id === row.target_id);
+            if (account) { account.account_status = 'deleted'; account.verification_status = 'rejected'; }
+            report.status = 'resolved';
+            store.notifications.unshift({
+              id: `note-${Date.now()}-account-deleted`,
+              user_id: row.target_id,
+              title: 'Account deleted',
+              message: 'Your CIT Marketplace account has been deleted by an administrator. You will not be able to log in.',
+              type: 'account_deleted',
+              related_id: row.target_id,
+              is_read: false,
+              created_at: now,
+            });
+          } else if (action === 'warn_user') {
+            report.status = 'resolved';
+            store.notifications.unshift({
+              id: `note-${Date.now()}-account-warned`,
+              user_id: row.target_id,
+              title: 'Account warning',
+              message: 'You have received a warning from a CIT Marketplace administrator regarding a report against your account or listing.',
+              type: 'account_warned',
+              related_id: row.target_id,
+              is_read: false,
+              created_at: now,
+            });
+          }
         }
         store.logs.unshift({
           id: `log-${Date.now()}`,
@@ -176,6 +299,8 @@ export default function Admin({ section }) {
         });
       });
       load();
+      setReportAction(null);
+      setDismissReason('');
       const target = row.title || row.full_name || 'Report';
       setNotice(`${target}: ${action === 'delete' ? 'deleted' : action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : action === 'verify' ? 'verified' : action === 'decline' ? 'declined' : action}.`);
     } catch (saveError) {
@@ -250,12 +375,12 @@ export default function Admin({ section }) {
                       <td className="swap-table-actions"><button type="button" className="swap-action-secondary" onClick={() => { setPreview(row); setPreviewOpen(true); }}>Preview</button><button type="button" className="swap-action-primary" onClick={() => decide(row, 'approve')}>Approve</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'reject')}>Reject</button><button type="button" className="swap-action-danger" onClick={() => decide(row, 'delete')}>Delete</button></td>
                     </> : section === 'accounts' ? <>
                       <td>{row.full_name}<small>{row.email}</small></td><td>{row.classification}</td><td>{new Date(row.created_at || Date.now()).toLocaleDateString()}</td><td>Needs verification</td>
-                      <td className="swap-table-actions"><button type="button" className="swap-action-primary" onClick={() => decide(row, 'verify')}>Verify</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'decline')}>Decline</button></td>
+                      <td className="swap-table-actions"><button type="button" className="swap-action-secondary" onClick={() => { setPreview(row); setPreviewOpen(true); }}>Preview</button><button type="button" className="swap-action-primary" onClick={() => decide(row, 'verify')}>Verify</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'decline')}>Decline</button></td>
                     </> : section === 'reports' ? <>
                       <td>{row.id}</td><td>{row.target_type} · {row.target_id}</td><td>{row.reason}</td><td>{row.reporter_name}</td><td>{new Date(row.created_at).toLocaleDateString()}</td>
-                      <td className="swap-table-actions"><button type="button" className="swap-action-primary" onClick={() => decide(row, 'resolved')}>Resolve</button><button type="button" className="swap-action-secondary" onClick={() => decide(row, 'dismissed')}>Dismiss</button></td>
+                      <td className="swap-table-actions"><button type="button" className="swap-action-secondary" onClick={() => { setPreview(row); setPreviewOpen(true); }}>Preview</button><button type="button" className="swap-action-primary" onClick={() => { setReportAction({ report: row, type: 'resolve' }); }}>Resolve</button><button type="button" className="swap-action-secondary" onClick={() => { setReportAction({ report: row, type: 'dismiss' }); setDismissReason(''); }}>Dismiss</button></td>
                     </> : <>
-                      <td>{new Date(row.created_at).toLocaleString()}</td><td>{row.admin?.full_name || 'Administrator'}</td><td>{row.action}</td><td>{row.target_type} · {row.target_id}</td><td>{row.note || '—'}</td>
+                      <td>{new Date(row.created_at).toLocaleString()}</td><td>{row.admin?.full_name || 'Administrator'}</td><td>{row.action}</td><td>{row.target_type} · {row.target_id}</td><td>{row.note || '—'} <button type="button" className="swap-action-secondary" onClick={() => { setPreview(row); setPreviewOpen(true); }}>See context</button></td>
                     </>}
                   </tr>
                 ))}
@@ -271,29 +396,124 @@ export default function Admin({ section }) {
         <div className="swap-preview-overlay" onClick={() => setPreviewOpen(false)} role="dialog" aria-modal="true" aria-label="Listing preview">
           <div className="swap-preview-card" onClick={event => event.stopPropagation()}>
             <button type="button" className="swap-preview-close" onClick={() => setPreviewOpen(false)} aria-label="Close preview">✕</button>
-            <div className="swap-preview-images">
-              {listingImageUrls(preview).map((url, index) => (
-                <img key={index} src={url} alt={`${preview.title}`} className="swap-preview-image" />
-              ))}
-              {!listingImageUrls(preview).length && <div className="swap-preview-empty">No photos</div>}
-            </div>
-            <div className="swap-preview-body">
-              <h2>{preview.title}</h2>
-              <p className="swap-preview-meta"><strong>Category:</strong> {preview.category}</p>
-              <p className="swap-preview-meta"><strong>Type:</strong> {preview.listing_type === 'rent' ? 'For rent' : preview.listing_type === 'both' ? 'Sale or rent' : 'For sale'}</p>
-              <p className="swap-preview-meta"><strong>Price:</strong> {formatCurrency(preview.price)}{preview.listing_type === 'rent' ? ' / day' : ''}</p>
-              {preview.listing_type !== 'sale' && preview.deposit && <p className="swap-preview-meta"><strong>Deposit:</strong> {formatCurrency(preview.deposit)}</p>}
-              <p className="swap-preview-meta"><strong>Pickup:</strong> {preview.location || preview.pickup || 'Arrange a campus meetup with the owner.'}</p>
-              <p className="swap-preview-meta"><strong>Condition:</strong> {preview.condition}</p>
-              <p className="swap-preview-meta"><strong>Owner:</strong> {preview.owner}</p>
-              {preview.rental_terms && <p className="swap-preview-meta"><strong>Rental terms:</strong> {preview.rental_terms}</p>}
-              <p className="swap-preview-description"><strong>Description:</strong> {preview.description}</p>
-              <div className="swap-preview-actions">
-                <button type="button" className="swap-action-primary" onClick={() => { setPreviewOpen(false); decide(preview, 'approve'); }}>Approve</button>
-                <button type="button" className="swap-action-secondary" onClick={() => { setPreviewOpen(false); decide(preview, 'reject'); }}>Reject</button>
-                <button type="button" className="swap-action-danger" onClick={() => { setPreviewOpen(false); decide(preview, 'delete'); }}>Delete</button>
+            {section === 'listings' && (
+              <>
+                <div className="swap-preview-images">
+                  {listingImageUrls(preview).map((url, index) => (
+                    <img key={index} src={url} alt={`${preview.title}`} className="swap-preview-image" />
+                  ))}
+                  {!listingImageUrls(preview).length && <div className="swap-preview-empty">No photos</div>}
+                </div>
+                <div className="swap-preview-body">
+                  <h2>{preview.title}</h2>
+                  <p className="swap-preview-meta"><strong>Category:</strong> {preview.category}</p>
+                  <p className="swap-preview-meta"><strong>Type:</strong> {preview.listing_type === 'rent' ? 'For rent' : preview.listing_type === 'both' ? 'Sale or rent' : 'For sale'}</p>
+                  <p className="swap-preview-meta"><strong>Price:</strong> {formatCurrency(preview.price)}{preview.listing_type === 'rent' ? ' / day' : ''}</p>
+                  {preview.listing_type !== 'sale' && preview.deposit && <p className="swap-preview-meta"><strong>Deposit:</strong> {formatCurrency(preview.deposit)}</p>}
+                  <p className="swap-preview-meta"><strong>Pickup:</strong> {preview.location || preview.pickup || 'Arrange a campus meetup with the owner.'}</p>
+                  <p className="swap-preview-meta"><strong>Condition:</strong> {preview.condition}</p>
+                  <p className="swap-preview-meta"><strong>Owner:</strong> {preview.owner}</p>
+                  {preview.rental_terms && <p className="swap-preview-meta"><strong>Rental terms:</strong> {preview.rental_terms}</p>}
+                  <p className="swap-preview-description"><strong>Description:</strong> {preview.description}</p>
+                  <div className="swap-preview-actions">
+                    <button type="button" className="swap-action-primary" onClick={() => { setPreviewOpen(false); decide(preview, 'approve'); }}>Approve</button>
+                    <button type="button" className="swap-action-secondary" onClick={() => { setPreviewOpen(false); decide(preview, 'reject'); }}>Reject</button>
+                    <button type="button" className="swap-action-danger" onClick={() => { setPreviewOpen(false); decide(preview, 'delete'); }}>Delete</button>
+                  </div>
+                </div>
+              </>
+            )}
+            {section === 'accounts' && (
+              <div className="swap-preview-body">
+                <span className="avatar avatar-large">{preview.full_name.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}</span>
+                <h2>{preview.full_name}</h2>
+                <p className="swap-preview-meta"><strong>Email:</strong> {preview.email}</p>
+                <p className="swap-preview-meta"><strong>Classification:</strong> {preview.classification}</p>
+                <p className="swap-preview-meta"><strong>Role:</strong> {preview.role}</p>
+                <p className="swap-preview-meta"><strong>Verified:</strong> {preview.is_verified ? 'Yes' : 'No'}</p>
+                <p className="swap-preview-meta"><strong>Verification status:</strong> {preview.verification_status}</p>
+                <p className="swap-preview-meta"><strong>Account status:</strong> {preview.account_status}</p>
+                <p className="swap-preview-meta"><strong>Member since:</strong> {new Date(preview.created_at).toLocaleDateString()}</p>
+                <div className="swap-preview-actions">
+                  <button type="button" className="swap-action-primary" onClick={() => { setPreviewOpen(false); decide(preview, 'verify'); }}>Verify</button>
+                  <button type="button" className="swap-action-secondary" onClick={() => { setPreviewOpen(false); decide(preview, 'decline'); }}>Decline</button>
+                </div>
               </div>
-            </div>
+            )}
+            {section === 'reports' && (
+              <div className="swap-preview-body">
+                <h2>Report #{preview.id.slice(-6).toUpperCase()}</h2>
+                <p className="swap-preview-meta"><strong>Target:</strong> {preview.target_type} · {preview.target_id}</p>
+                {preview.target_type === 'listing' && (
+                  <div className="swap-preview-images">
+                    {reportListingImages.map((url, index) => (
+                      <img key={index} src={url} alt="" className="swap-preview-image" />
+                    ))}
+                    {!reportListingImages.length && <div className="swap-preview-empty">No photos</div>}
+                  </div>
+                )}
+                {preview.target_type === 'user' && (
+                  <div className="swap-preview-body" style={{ textAlign: 'center', margin: '12px 0' }}>
+                    <span className="avatar avatar-large">{preview.reporter_name.split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase()}</span>
+                    <h3 style={{ margin: '8px 0 0' }}>{preview.reporter_name}</h3>
+                  </div>
+                )}
+                <p className="swap-preview-meta"><strong>Reason:</strong> {preview.reason}</p>
+                <p className="swap-preview-meta"><strong>Reported by:</strong> {preview.reporter_name}</p>
+                <p className="swap-preview-meta"><strong>Status:</strong> {preview.status}</p>
+                <p className="swap-preview-meta"><strong>Submitted:</strong> {new Date(preview.created_at).toLocaleString()}</p>
+                <div className="swap-preview-actions">
+                  <button type="button" className="swap-action-primary" onClick={() => { setPreviewOpen(false); setReportAction({ report: preview, type: 'resolve' }); }}>Resolve</button>
+                  <button type="button" className="swap-action-secondary" onClick={() => { setPreviewOpen(false); setReportAction({ report: preview, type: 'dismiss' }); setDismissReason(''); }}>Dismiss</button>
+                </div>
+              </div>
+            )}
+            {section === 'logs' && (
+              <div className="swap-preview-body">
+                <h2>Moderation Log</h2>
+                <p className="swap-preview-meta"><strong>Time:</strong> {new Date(preview.created_at).toLocaleString()}</p>
+                <p className="swap-preview-meta"><strong>Administrator:</strong> {preview.admin?.full_name || 'Administrator'}</p>
+                <p className="swap-preview-meta"><strong>Action:</strong> {preview.action}</p>
+                <p className="swap-preview-meta"><strong>Target:</strong> {preview.target_type} · {preview.target_id}</p>
+                <p className="swap-preview-meta"><strong>Note:</strong> {preview.note || '—'}</p>
+                <div className="swap-preview-actions">
+                  <button type="button" className="swap-action-secondary" onClick={() => setPreviewOpen(false)}>Close</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {reportAction && (
+        <div className="swap-preview-overlay" onClick={() => setReportAction(null)} role="dialog" aria-modal="true" aria-label="Report action">
+          <div className="swap-preview-card" onClick={event => event.stopPropagation()}>
+            <button type="button" className="swap-preview-close" onClick={() => setReportAction(null)} aria-label="Close">✕</button>
+            {reportAction.type === 'resolve' && (
+              <div className="swap-preview-body">
+                <h2>Resolve Report</h2>
+                <p className="swap-preview-meta"><strong>Reason:</strong> {reportAction.report.reason}</p>
+                <p className="swap-preview-meta"><strong>Reported by:</strong> {reportAction.report.reporter_name}</p>
+                <p className="swap-preview-meta"><strong>Target:</strong> {reportAction.report.target_type} · {reportAction.report.target_id}</p>
+                <div className="swap-preview-actions">
+                  <button type="button" className="swap-action-danger" onClick={() => { setReportAction(null); decide(reportAction.report, 'delete_item'); }}>Delete item</button>
+                  <button type="button" className="swap-action-danger" onClick={() => { setReportAction(null); decide(reportAction.report, 'delete_user'); }}>Delete user</button>
+                  <button type="button" className="swap-action-secondary" onClick={() => { setReportAction(null); decide(reportAction.report, 'warn_user'); }}>Warn user</button>
+                </div>
+              </div>
+            )}
+            {reportAction.type === 'dismiss' && (
+              <div className="swap-preview-body">
+                <h2>Dismiss Report</h2>
+                <p className="swap-preview-meta"><strong>Reason:</strong> {reportAction.report.reason}</p>
+                <p className="swap-preview-meta"><strong>Reported by:</strong> {reportAction.report.reporter_name}</p>
+                <label className="field-label">Explain why this report is being dismissed</label>
+                <textarea value={dismissReason} onChange={event => setDismissReason(event.target.value)} rows="3" required maxLength="1000" />
+                <div className="swap-preview-actions">
+                  <button type="button" className="swap-action-secondary" onClick={() => { setReportAction(null); setDismissReason(''); }}>Cancel</button>
+                  <button type="button" className="swap-action-primary" onClick={() => { setReportAction(null); decide(reportAction.report, 'dismissed'); }}>Confirm dismissal</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

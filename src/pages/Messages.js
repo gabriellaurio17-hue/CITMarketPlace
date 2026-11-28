@@ -48,10 +48,10 @@ function LocalMessages() {
           return <button type="button" key={conversation.id} className={`conversation-row${conversation.id === activeId ? ' conversation-active' : ''}`} onClick={() => setActiveId(conversation.id)}><span className="avatar">{participant?.full_name?.split(' ').map(part => part[0]).join('') || 'CIT'}</span><span className="conversation-copy"><strong>{participant?.full_name || 'CIT member'}</strong><small>{conversation.title}</small></span></button>;
         })}
       </aside><div className="chat-panel">{active ? <>
-        <header className="chat-header"><span className="avatar">{member?.full_name?.split(' ').map(part => part[0]).join('')}</span><span><strong>{member?.full_name || 'CIT member'}</strong></span><Link to={`/items/${active.listing_id}`}>View item ↗</Link></header>
+        <header className="chat-header"><span className="avatar">{member?.full_name?.split(' ').map(part => part[0]).join('')}</span><span><strong>{member?.full_name || 'CIT member'}</strong></span><Link to={`/items/${active.listing_id}`}>View item <span aria-hidden="true">↗</span></Link></header>
         <div className="chat-messages" role="log">{messages.map(message => <div key={message.id} className={`message-line${message.sender_id === user.id ? ' own-message' : ''}`}><p>{message.content}</p></div>)}</div>
         <form className="message-form" onSubmit={event => { event.preventDefault(); if (!draft.trim()) return; updateStore(current => current.messages.push({ id: `msg-${Date.now()}`, conversation_id: active.id, sender_id: user.id, content: draft.trim(), created_at: new Date().toISOString(), read_by: [] })); setDraft(''); }}>
-          <input value={draft} onChange={event => setDraft(event.target.value)} placeholder="Write a message..." /><button type="submit">↑</button>
+          <input value={draft} onChange={event => setDraft(event.target.value)} placeholder="Write a message..." /><button type="submit" aria-label="Send message">↑</button>
         </form>
       </> : <div className="empty-state"><h2>Select a conversation</h2><p>Choose a chat or open a listing to message its owner.</p></div>}</div></section>
     </main>
@@ -184,9 +184,9 @@ function RemoteMessages() {
           return <button type="button" key={conversation.id} className={`conversation-row${conversation.id === activeId ? ' conversation-active' : ''}`} onClick={() => setActiveId(conversation.id)}><span className="avatar">{participant?.full_name?.split(' ').map(part => part[0]).join('') || 'CIT'}</span><span className="conversation-copy"><strong>{participant?.full_name || 'CIT member'}</strong><small>{conversation.title || conversation.listings?.title}</small></span></button>;
         }) : <div className="empty-state"><p>{search ? 'No matching conversations.' : 'No conversations yet. Open a listing to message its owner.'}</p></div>}
       </aside><div className="chat-panel">{active ? <>
-        <header className="chat-header"><span className="avatar">{other?.full_name?.split(' ').map(part => part[0]).join('') || 'CIT'}</span><span><strong>{other?.full_name || 'CIT member'}</strong></span><Link to={`/items/${active.listing_id}`}>View item ↗</Link></header>
+        <header className="chat-header"><span className="avatar">{other?.full_name?.split(' ').map(part => part[0]).join('') || 'CIT'}</span><span><strong>{other?.full_name || 'CIT member'}</strong></span><Link to={`/items/${active.listing_id}`}>View item <span aria-hidden="true">↗</span></Link></header>
         <div className="chat-messages" role="log">{messages.map(message => <div key={message.id} className={`message-line${message.sender_id === user.id ? ' own-message' : ''}`}><p>{message.content}</p></div>)}</div>
-        <form className="message-form" onSubmit={send}><input value={draft} onChange={event => setDraft(event.target.value)} placeholder="Write a message..." /><button type="submit">↑</button></form>
+        <form className="message-form" onSubmit={send}><input value={draft} onChange={event => setDraft(event.target.value)} placeholder="Write a message..." /><button type="submit" aria-label="Send message">↑</button></form>
       </> : <div className="empty-state"><h2>Select a conversation</h2><p>Choose a chat or open a listing to message its owner.</p></div>}</div></section>
     </main>
   );

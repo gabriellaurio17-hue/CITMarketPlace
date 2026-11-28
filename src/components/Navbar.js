@@ -21,7 +21,7 @@ function Navbar({ dark = false }) {
     <div className="header-actions">
       {profile?.role === 'admin' && <Link className="nav-link admin-nav-link" to="/admin">Admin</Link>}
       <Link className="notification-pill" to="/notifications"><span className="notification-icon">♧</span> Notifications</Link>
-      <Link className="user-chip" to="/dashboard"><span className="avatar">{initials}</span><span>{profile?.full_name || user.email}</span><span className="chevron">⌄</span></Link>
+      <Link className="user-chip nav-link" to="/dashboard"><span className="avatar">{initials}</span><span>{profile?.full_name || user.email}</span><span className="chevron" aria-hidden="true">⌄</span></Link>
       <button className="logout-link" type="button" onClick={logOut}>Log out</button>
     </div>
   ) : (
@@ -41,7 +41,6 @@ function Navbar({ dark = false }) {
           </nav>
         ) : profile?.classification === 'Faculty/Staff' ? (
           <nav className="nav-links" aria-label="Faculty and staff navigation">
-            <NavLink to="/dashboard" className={navClass}>Faculty Dashboard</NavLink>
             <NavLink to="/browse" className={navClass}>Browse</NavLink>
             <NavLink to="/sell" className={navClass}>Sell</NavLink>
             <NavLink to="/rentals" className={navClass}>Rentals</NavLink>

@@ -8,13 +8,21 @@ export default function Notifications() {
   const [rows, setRows] = useState([]);
   const [notice, setNotice] = useState('');
   const load = useCallback(async () => {
+    const supabaseRows = [];
     if (isSupabaseConfigured) {
       const { data, error: queryError } = await supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
       if (queryError) { setNotice(queryError.message); return; }
-      setRows(data || []);
-      return;
+      supabaseRows.push(...(data || []));
     }
-    setRows(readStore().notifications.filter(item => item.user_id === user.id));
+    const localRows = readStore().notifications.filter(item => item.user_id === user.id);
+    const seen = new Set();
+    const merged = [...supabaseRows, ...localRows].filter(item => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+    merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    setRows(merged);
   }, [user.id]);
 
   useEffect(() => {
@@ -26,20 +34,17 @@ export default function Notifications() {
   }, [load, user.id]);
 
   const mark = id => {
-    if (isSupabaseConfigured) {
-      (async () => {
+    (async () => {
+      if (isSupabaseConfigured) {
         let query = supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id);
         if (id) query = query.eq('id', id);
         const { error: updateError } = await query;
         if (updateError) { setNotice(updateError.message); return; }
-        setNotice(id ? 'Notification marked as read.' : 'All notifications marked as read.');
-        await load();
-      })();
-      return;
-    }
-    updateStore(store => store.notifications.forEach(item => { if (item.user_id === user.id && (!id || item.id === id)) item.is_read = true; }));
-    setNotice(id ? 'Notification marked as read.' : 'All notifications marked as read.');
-    load();
+      }
+      updateStore(store => store.notifications.forEach(item => { if (item.user_id === user.id && (!id || item.id === id)) item.is_read = true; }));
+      setNotice(id ? 'Notification marked as read.' : 'All notifications marked as read.');
+      await load();
+    })();
   };
   const unread = rows.filter(item => !item.is_read).length;
 

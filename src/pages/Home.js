@@ -31,13 +31,14 @@ export default function Home() {
           <span className="eyebrow"><span className="live-dot" /> YOUR CAMPUS, YOUR MARKETPLACE</span>
           <h1>buy, sell <span>&amp;</span><br />rent on campus</h1>
           <p>The things you need, from the people you trust.<br />Made for the CIT community.</p>
-          <Link className="button hero-button" to="/browse">Explore the marketplace <span>↗</span></Link>
+          <Link className="button hero-button" to="/browse">Explore the marketplace <span aria-hidden="true">↗</span></Link>
         </div>
       </section>
 
       <div className="bento-backdrop-zone watermark-parent photo-panel">
         <BackdropImage src="/images/wall-of-fame.jpg" position="center 30%" tint="none" overlayColor="rgba(43,5,9,.25)" />
         <section className="bento-grid" aria-label="Marketplace features">
+          <h2 className="sr-only">Marketplace features</h2>
         <form className="bento-card search-bento" role="search" aria-label="Search marketplace listings" onSubmit={openBrowse}>
           <div className="bento-label light-label">FIND YOUR NEXT THING</div>
           <div className="segmented segmented-dark" role="group" aria-label="Listing type">
@@ -50,10 +51,10 @@ export default function Home() {
         <Link to="/browse?category=Lab%20equipment" className="bento-card lab-bento">
           <div className="lab-visual"><span className="lab-ring" /><span className="lab-tube" /><span className="lab-label">LAB</span></div>
           <div className="lab-caption"><span>GOOD TO BORROW</span><strong>Lab equipment</strong></div>
-          <span className="bento-arrow">↗</span>
+          <span className="bento-arrow" aria-hidden="true">↗</span>
         </Link>
         <Link to="/signup" className="bento-card try-bento">
-          <span className="bento-label">GOT SOMETHING?</span><strong>Try it now<span>.</span></strong><span className="try-link">free with your @cit.edu email <span>↗</span></span>
+          <span className="bento-label">GOT SOMETHING?</span><strong>Try it now<span>.</span></strong>          <span className="try-link">free with your @cit.edu email <span aria-hidden="true">↗</span></span>
         </Link>
         <div className="bento-card rental-bento">
           <div className="rental-illustration"><div className="calendar-card"><span>OCT</span><strong>20</strong><i>RETURN DAY</i></div><span className="sparkle">✳</span></div>
@@ -75,7 +76,7 @@ export default function Home() {
       <section className="fresh-section content-width">
         <div className="section-heading">
           <div><span className="eyebrow">A FEW GOOD FINDS</span><h2>Fresh on campus<span>.</span></h2></div>
-          <Link className="text-link" to="/browse">See everything <span>↗</span></Link>
+          <Link className="text-link" to="/browse">See everything <span aria-hidden="true">↗</span></Link>
         </div>
         <div className="tabs" role="group" aria-label="Filter featured listings">
           {[['all', 'All'], ['sale', 'For sale'], ['rent', 'For rent']].map(([value, label]) => <button type="button" aria-pressed={activeTab === value} className={activeTab === value ? 'tab active-tab' : 'tab'} key={value} onClick={() => setActiveTab(value)}>{label}</button>)}
@@ -90,7 +91,7 @@ export default function Home() {
       >
         <span className="eyebrow">GOOD PEOPLE. GOOD FINDS.</span><h2>Campus life, made a little easier.</h2>
         <p>Every account belongs to a verified CIT student, faculty member, or staff member. Find each other, agree on a meetup, and exchange items in person.</p>
-        <Link className="button" to="/sell">List your first item <span>↗</span></Link>
+        <Link className="button" to="/sell">List your first item <span aria-hidden="true">↗</span></Link>
       </section>
     </div>
   );

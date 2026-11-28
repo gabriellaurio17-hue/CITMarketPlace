@@ -1,4 +1,5 @@
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { updateStore } from './localStore';
 
 function toListing(row) {
   const images = [...(row.listing_images || [])]
@@ -125,11 +126,27 @@ export async function updateMarketplaceListing(id, ownerId, payload) {
 }
 
 export async function createMarketplaceNotification(userId, type, message) {
+  const now = new Date().toISOString();
+  const localNotification = {
+    id: `note-${Date.now()}`,
+    user_id: userId,
+    type,
+    message,
+    is_read: false,
+    created_at: now,
+  };
+  updateStore(store => {
+    store.notifications.unshift(localNotification);
+  });
+  if (!isSupabaseConfigured || !supabase) {
+    return;
+  }
   const { error } = await supabase.from('notifications').insert({
     user_id: userId,
     type,
     message,
     is_read: false,
+    created_at: now,
   });
   if (error) throw error;
 }

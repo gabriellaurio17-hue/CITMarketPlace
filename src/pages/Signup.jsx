@@ -122,8 +122,8 @@ export default function Signup() {
             }
           }}>
             <label htmlFor="verification-code">Verification code</label>
-            <input id="verification-code" inputMode="numeric" value={verificationCode} onChange={(event) => { setVerificationCode(event.target.value); setVerificationError(''); }} aria-invalid={Boolean(verificationError)} />
-            {verificationError && <p className="auth-error" role="alert">{verificationError}</p>}
+            <input id="verification-code" inputMode="numeric" value={verificationCode} onChange={(event) => { setVerificationCode(event.target.value); setVerificationError(''); }} aria-invalid={Boolean(verificationError)} aria-describedby={verificationError ? 'verification-code-error' : undefined} />
+            {verificationError && <p className="auth-error" id="verification-code-error" role="alert">{verificationError}</p>}
             <button className="button auth-submit" type="submit">Verify account</button>
           </form>
           <button type="button" className="text-button" onClick={() => {
@@ -162,7 +162,7 @@ export default function Signup() {
         <div className="auth-field">
           <label htmlFor="signup-classification">Account classification</label>
           <select id="signup-classification" value={form.classification} onChange={updateField('classification')} aria-required="true" aria-invalid={Boolean(errors.classification)} aria-describedby={errors.classification ? 'signup-classification-error' : undefined}>
-            <option value="">Choose a classification</option>
+            <option value="" disabled>Choose a classification</option>
             <option value="Student">Student</option>
             <option value="Faculty/Staff">Faculty/Staff</option>
           </select>

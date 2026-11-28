@@ -34,9 +34,9 @@ export default function ItemDetails() {
     setReportError('');
     try {
       if (isSupabaseConfigured) {
-        await createMarketplaceReport({ reporter_id: user.id, target_type: reportTarget, target_id: reportTarget === 'listing' ? listing.id : listing.owner_id, reason: reportReason.trim(), status: 'open' });
+        await createMarketplaceReport({ reporter_id: user.id, target_type: reportTarget, target_id: reportTarget === 'listing' ? listing.id : listing.owner_id, owner_id: reportTarget === 'listing' ? listing.owner_id : null, reason: reportReason.trim(), status: 'open' });
       } else {
-        updateStore(s => s.reports.unshift({ id: `report-${Date.now()}`, reporter_id: user.id, reporter_name: user.email, target_type: reportTarget, target_id: reportTarget === 'listing' ? listing.id : listing.owner_id, category: 'Marketplace concern', description: reportReason.trim(), reason: reportReason.trim(), status: 'pending', created_at: new Date().toISOString() }));
+        updateStore(s => s.reports.unshift({ id: `report-${Date.now()}`, reporter_id: user.id, reporter_name: user.email, target_type: reportTarget, target_id: reportTarget === 'listing' ? listing.id : listing.owner_id, owner_id: reportTarget === 'listing' ? listing.owner_id : null, category: 'Marketplace concern', description: reportReason.trim(), reason: reportReason.trim(), status: 'pending', created_at: new Date().toISOString() }));
       }
     } catch (saveError) {
       setReportError(saveError.message || 'Could not submit this report.');
@@ -93,9 +93,7 @@ export default function ItemDetails() {
           ...(isRental ? { start_date: rentStart, end_date: rentEnd } : {}),
         };
         const created = await createMarketplaceTransaction(transaction);
-        try {
-          await createMarketplaceNotification(listing.owner_id, isRental ? 'rental_request' : 'sale_request', `${profile.full_name} submitted a ${isRental ? 'rental' : 'purchase'} request for ${listing.title}.`);
-        } catch { /* Notifications are optional when recipient-write policies are restricted. */ }
+        await createMarketplaceNotification(listing.owner_id, isRental ? 'rental_request' : 'sale_request', `${profile.full_name} submitted a ${isRental ? 'rental' : 'purchase'} request for ${listing.title}.`);
         setActionNotice(isRental ? 'Rental request submitted. The owner must approve it.' : 'Purchase request submitted. The seller must accept it.');
         return created;
       } catch (saveError) {
@@ -150,7 +148,7 @@ export default function ItemDetails() {
   if (loading) return <div className="loading-state">Loading listing…</div>;
   if (error) return <div className="content-width standard-page" role="main"><section className="not-found-state"><h1>Couldn’t load listing.</h1><p>{error}</p><Link className="button gold-button" to="/browse">Back to Browse</Link></section></div>;
   if (!listing) {
-    return <div className="item-detail-page"><main className="detail-main"><section className="not-found-state"><span className="eyebrow">THAT ITEM HAS MOVED ON</span><h1>Listing not found.</h1><p>It may have been removed or the link may be out of date.</p><Link className="button gold-button" to="/browse">Back to Browse ↗</Link></section></main></div>;
+    return <div className="item-detail-page"><main className="detail-main"><section className="not-found-state"><span className="eyebrow">THAT ITEM HAS MOVED ON</span><h1>Listing not found.</h1><p>It may have been removed or the link may be out of date.</p>                <Link className="button gold-button" to="/browse">Back to Browse <span aria-hidden="true">↗</span></Link></section></main></div>;
   }
 
   const isRental = listing.type === 'rent' || (listing.type === 'both' && dealType === 'rent');
@@ -169,7 +167,7 @@ export default function ItemDetails() {
     <div className="item-detail-page">
       <main className="detail-main watermark-parent has-watermark">
         <Watermark dark>{lastWord}</Watermark>
-        <div className="detail-breadcrumb"><Link to="/browse">Browse</Link><span> / </span>{listing.category}<span> / </span><span>{listing.title}</span></div>
+        <div className="detail-breadcrumb"><button type="button" className="back-button" onClick={() => navigate(-1)} aria-label="Go back">← Back</button><Link to="/browse">Browse</Link><span aria-hidden="true"> / </span>{listing.category}<span aria-hidden="true"> / </span><span>{listing.title}</span></div>
         <div className="detail-layout">
           <section className="detail-intro"><span className="eyebrow">CIT MARKETPLACE LISTING</span><h1>{listing.title}</h1><p>{listing.description}</p><p className="detail-posted-by">Posted by <strong>{listing.owner}</strong>{postedDate && <> · {postedDate}</>}</p></section>
           <div className="detail-gallery"><div className={`detail-art art-${listing.gradient}`} role={selectedImage ? 'img' : undefined} aria-label={selectedImage ? `${listing.title} photo ${selectedImageIndex + 1}` : undefined} style={selectedImage ? { backgroundImage: `url("${selectedImage}")`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}>{!selectedImage && <><span className="detail-art-halo" /><span className="detail-product"><i /><b /><em /></span></>}<span className="art-caption">{listing.category.toUpperCase()}</span></div>{images.length > 1 && <div className="detail-image-thumbnails" aria-label="Listing photos">{images.map((image, index) => <button key={`${image}-${index}`} type="button" className={selectedImageIndex === index ? 'selected' : ''} aria-label={`Show photo ${index + 1} of ${images.length}`} aria-pressed={selectedImageIndex === index} onClick={() => setSelectedImageIndex(index)} style={{ backgroundImage: `url("${image}")` }} />)}</div>}</div>
@@ -183,10 +181,10 @@ export default function ItemDetails() {
               isAvailable ? (
                 <>
                   <button type="button" className="button detail-action" onClick={submitTransactionRequest}>
-                    {isRental ? 'Request to rent' : 'Request to buy'} <span>↗</span>
+                    {isRental ? 'Request to rent' : 'Request to buy'} <span aria-hidden="true">↗</span>
                   </button>
                   <Link className="button detail-action" to={`/messages?listing=${listing.id}&seller=${listing.owner_id}`}>
-                    Message owner <span>↗</span>
+                    Message owner <span aria-hidden="true">↗</span>
                   </Link>
                   {actionError && <p className="auth-error" role="alert">{actionError}</p>}
                   {actionNotice && <p className="admin-notice" role="status">{actionNotice}</p>}
